@@ -3,10 +3,7 @@
 ## Introduction
 This project implements the Policy Iteration algorithm tailored for environments with continuous state spaces. By discretizing the state space, the algorithm efficiently finds optimal policies for a given Markov Decision Process (MDP).
 
-## Features
-- Implements Policy Iteration for continuous state spaces through discretization.
-- Utilizes numerical stability techniques to ensure accurate computations.
-- Provides a modular and scalable code structure for easy integration and experimentation.
+
 
 ## Dependencies Installation and Setting
 - Create Conda environment with dependencies
@@ -21,3 +18,9 @@ This project implements the Policy Iteration algorithm tailored for environments
 	``` bash
 	python3 PolicyIteration.py
 	```
+
+
+## Features
+- Implements Policy Iteration for continuous state spaces through discretization.
+- Utilizes numerical stability techniques to ensure accurate computations.
+- Provides a modular and scalable code structure for easy integration and experimentation.
