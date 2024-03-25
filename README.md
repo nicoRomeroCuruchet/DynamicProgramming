@@ -8,7 +8,7 @@ This project implements the Policy Iteration algorithm tailored for environments
 - Utilizes numerical stability techniques to ensure accurate computations.
 - Provides a modular and scalable code structure for easy integration and experimentation.
 
-## Dependencies Installation
+## Dependencies Installation and Setting
 - Create Conda environment with dependencies
 	``` bash
 	conda env create -f environment.yml
