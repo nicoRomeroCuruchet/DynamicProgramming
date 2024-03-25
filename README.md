@@ -17,3 +17,7 @@ This project implements the Policy Iteration algorithm tailored for environments
 	``` bash
 	conda activate DynamicProgramming
 	```
+- You can run Policy Iteration with the gymnasium's CartPoleEnv environment by doing:
+	``` bash
+	python3 PolicyIteration.py
+	```
