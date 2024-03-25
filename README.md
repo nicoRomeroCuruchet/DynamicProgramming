@@ -7,3 +7,13 @@ This project implements the Policy Iteration algorithm tailored for environments
 - Implements Policy Iteration for continuous state spaces through discretization.
 - Utilizes numerical stability techniques to ensure accurate computations.
 - Provides a modular and scalable code structure for easy integration and experimentation.
+
+## Dependencies Installation
+- Create Conda environment with dependencies
+	``` bash
+	conda env create -f environment.yml
+	```
+- Activate environment
+	``` bash
+	conda activate 
+	```
