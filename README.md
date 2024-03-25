@@ -15,5 +15,5 @@ This project implements the Policy Iteration algorithm tailored for environments
 	```
 - Activate environment
 	``` bash
-	conda activate 
+	conda activate DynamicProgramming
 	```
