@@ -1,19 +1,12 @@
 import math
-import torch
-import pickle
-import random
-from tqdm import tqdm
-from itertools import product
+from typing import Optional, Union
 
-import numpy as np
 import gymnasium as gym
-from typing import Optional,  Union
-
 import numpy as np
-import gymnasium as gym
 from gymnasium import logger, spaces
 from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
+
 
 class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     """
@@ -224,7 +217,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 reward = -1.0
             elif not self._sutton_barto_reward:
                 reward = 0.0
-                
+
             reward = -1.0
 
         if self.render_mode == "human":
