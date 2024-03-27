@@ -46,10 +46,18 @@ class PolicyIteration(object):
 
         state = tuple(np_state)
         discretized_state = []
-        for value, (_, bins) in zip(state, self.bins_space.items()):
-            # Digitize the value and adjust the index to be 0-based
-            up_index = min(np.digitize(value, bins), len(bins) - 1)
-            discretized_value = bins[up_index]
+        for s_i, (_, bins) in zip(state, self.bins_space.items()):
+            # # Digitize the value and adjust the index to be 0-based
+            up_index = min(np.digitize(s_i, bins), len(bins) - 1)
+            # discretized_value = bins[up_index]
+            # find nearest bin
+            up_abs = abs(bins[up_index] - s_i)
+            down_abs = abs(bins[up_index - 1] - s_i)
+            if down_abs < up_abs:
+                discretized_value = bins[up_index - 1]
+            else:
+                discretized_value = bins[up_index]
+
             discretized_state.append(discretized_value)
 
         return tuple(discretized_state)
@@ -65,7 +73,7 @@ class PolicyIteration(object):
         table = {}
         for state in tqdm(self.states_space):
             for action in range(self.env.action_space.n):
-                self.env.reset()
+                self.env.reset() # TODO: is this necessary? might be slow
                 self.env.state = np.array(state, dtype=np.float64)  # set the state
                 obs, _, terminated, done, info = self.env.step(action)
                 obs = self.get_state(obs)
@@ -103,20 +111,29 @@ class PolicyIteration(object):
         Returns:
             dict: A dictionary representing the new value function after evaluating the policy.
         """
+        theta = 1e-2 # convergence threshold
+        
+        while True:
+            delta = 0
+            new_value_function = {}
+            for state in self.states_space:
+                new_val = 0
+                for action in [0, 1]:
+                    reward, next_state = transition_and_reward_function[
+                        (state, action)
+                    ].values()
+                    next_state_value = self.get_value(next_state, self.value_function)
+                    new_val += self.policy[state][action] * (
+                        reward + self.gamma * next_state_value
+                    )
+                new_value_function[state] = new_val
 
-        new_value_function = {}
-        for state in self.states_space:
-            new_val = 0
-            for action in [0, 1]:
-                reward, next_state = transition_and_reward_function[
-                    (state, action)
-                ].values()
-                next_state_value = self.get_value(next_state, self.value_function)
-                new_val += self.policy[state][action] * (
-                    reward + self.gamma * next_state_value
-                )
-            new_value_function[state] = new_val
-        self.value_function = new_value_function
+            delta = max(delta, max(abs(new_value_function[state] - self.value_function[state]) for state in self.states_space))
+            print(f"delta: {delta}")
+            if delta < theta:
+                break
+
+            self.value_function = new_value_function
         return new_value_function
 
     def improve_policy(self, transition_and_reward_function: dict) -> dict:
@@ -128,7 +145,8 @@ class PolicyIteration(object):
 
         Returns:
             dict: The new policy after improvement."""
-
+        
+        policy_stable = True
         new_policy = {}
 
         for state in self.states_space:
@@ -144,11 +162,14 @@ class PolicyIteration(object):
             new_policy[state] = {
                 action: 1 if action is greedy_action else 0 for action in [0, 1]
             }
+        if self.policy != new_policy:
+            print(f"number of different actions: {sum([self.policy[state][0] != new_policy[state][0] for state in self.states_space])}")
+            policy_stable = False
 
         self.policy = new_policy
-        return new_policy
+        return policy_stable
 
-    def run(self, nsteps=10):
+    def run(self, nsteps):
         """Runs the policy iteration algorithm for a specified number of steps.
 
         Parameters:
@@ -158,9 +179,11 @@ class PolicyIteration(object):
         print("Generating transition and reward function table...")
         transition_and_reward_function = self.get_transition_reward_function()
         print("Running Policy Iteration algorithm...")
-        for _ in tqdm(range(nsteps)):
+        for n in tqdm(range(nsteps)):
+            print(f"solving step {n}")
             self.evaluate_policy(transition_and_reward_function)
-            self.improve_policy(transition_and_reward_function)
+            if self.improve_policy(transition_and_reward_function):
+                break
 
 
 def get_optimal_action(state, optimal_policy):
@@ -178,27 +201,45 @@ def get_optimal_action(state, optimal_policy):
 
 
 if __name__ == "__main__":
+    x_lim = 2.5
+    x_dot_lim = 2.5
+    theta_lim = 0.25
+    theta_dot_lim = 2.5
+
 
     bins_space = {
-        "x_space": np.linspace(-5, 5, 40),
-        "x_dot_space": np.linspace(-5, 5, 40),
-        "theta_space": np.linspace(-0.418, 0.418, 20),
-        "theta_dot_space": np.linspace(-5, 5, 40),
+        "x_space": np.linspace(-x_lim, x_lim, 20),
+        "x_dot_space": np.linspace(-x_dot_lim, x_dot_lim, 20),
+        "theta_space": np.linspace(-theta_lim, theta_lim, 20),
+        "theta_dot_space": np.linspace(-theta_dot_lim, theta_dot_lim, 20),
     }
 
     pi = PolicyIteration(
         env=CartPoleEnv(sutton_barto_reward=False), bins_space=bins_space
     )
 
+    STEPS = 10000
     # start the policy iteration algorithm
-    pi.run(nsteps=10)
+    pi.run(nsteps=STEPS)
 
     num_episodes = 10000
     cartpole = CartPoleEnv(render_mode="human")
+    max_obs = np.array([0.0, 0.0, 0.0, 0.0])
+    min_obs = np.array([0.0, 0.0, 0.0, 0.0])
+    limits = np.array([x_lim, x_dot_lim, theta_lim, theta_dot_lim])
     for episode in range(0, num_episodes):
         observation, _ = cartpole.reset()
         for timestep in range(1, 1000):
             action = get_optimal_action(pi.get_state(observation), pi.policy)
             observation, reward, done, terminated, info = cartpole.step(action)
+            max_obs = np.maximum(max_obs, observation)
+            min_obs = np.minimum(min_obs, observation)
             if done:
+                print(f"max_obs: {max_obs}")
+                print(f"min_obs: {min_obs}")
+                #check limits
+                if np.all(max_obs <= limits) and np.all(min_obs >= -limits):
+                    print(f"Episode {episode} finished after {timestep} timesteps")
+                else:
+                    print(f"Episode {episode} finished after {timestep} timesteps with out of limits observations")
                 break
