@@ -271,5 +271,5 @@ class PolicyIteration(object):
         Saves the policy and value function to files.
         """
         with open(self.env.__class__.__name__ + ".pkl", "wb") as f:
-            pickle.dump(self.policy, f)
+            pickle.dump(self, f)
             logger.info("Policy and value function saved.")        
