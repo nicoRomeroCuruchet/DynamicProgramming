@@ -1,16 +1,13 @@
-from itertools import product
-
-import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
-
+import gymnasium as gym
+from itertools import product
 from cartPole import CartPoleEnv
-
 
 class PolicyIteration(object):
     """Policy Iteration Algorithm for gymnasium environment"""
 
-    def __init__(self, env: gym.Env, gamma: float = 0.99, bins_space: dict = None):
+    def __init__(self, env: gym.Env, gamma: float = 0.99, theta=1e-2, bins_space: dict = None):
         """Initializes the Policy Iteration.
 
         Parameters:
@@ -22,6 +19,7 @@ class PolicyIteration(object):
 
         self.env = env
         self.gamma = gamma  # discaunt factor
+        self.theta = theta  # convergence threshold
 
         self.action_space = env.action_space
         self.bins_space = bins_space
@@ -48,16 +46,8 @@ class PolicyIteration(object):
         discretized_state = []
         for s_i, (_, bins) in zip(state, self.bins_space.items()):
             # # Digitize the value and adjust the index to be 0-based
-            up_index = min(np.digitize(s_i, bins), len(bins) - 1)
-            # discretized_value = bins[up_index]
-            # find nearest bin
-            up_abs = abs(bins[up_index] - s_i)
-            down_abs = abs(bins[up_index - 1] - s_i)
-            if down_abs < up_abs:
-                discretized_value = bins[up_index - 1]
-            else:
-                discretized_value = bins[up_index]
-
+            up_index          = min(np.digitize(s_i, bins), len(bins) - 1)
+            discretized_value = bins[up_index]
             discretized_state.append(discretized_value)
 
         return tuple(discretized_state)
@@ -111,8 +101,7 @@ class PolicyIteration(object):
         Returns:
             dict: A dictionary representing the new value function after evaluating the policy.
         """
-        theta = 1e-2 # convergence threshold
-        
+
         while True:
             delta = 0
             new_value_function = {}
@@ -130,7 +119,7 @@ class PolicyIteration(object):
 
             delta = max(delta, max(abs(new_value_function[state] - self.value_function[state]) for state in self.states_space))
             print(f"delta: {delta}")
-            if delta < theta:
+            if delta < self.theta:
                 break
 
             self.value_function = new_value_function
@@ -186,21 +175,47 @@ class PolicyIteration(object):
                 break
 
 
-def get_optimal_action(state, optimal_policy):
-    """Returns the optimal action for a given state based on the optimal policy.
+    def get_optimal_action(self, state):
+        """Returns the optimal action for a given state based on the policy.
 
-    Parameters:
-    state (int): The current state.
-    optimal_policy (dict): The optimal policy containing the action-value pairs for each state.
+        Parameters:
+        state (int): The current state.
+        
+        Returns:
+        int: The optimal action for the given state."""
 
-    Returns:
-    int: The optimal action for the given state."""
+        indexes = list()        
+        for s_i, (_, bins) in zip(state, self.bins_space.items()):
+            # # Digitize the value and adjust the index to be 0-based
+            downs_indexes = max(min(np.digitize(s_i, bins)-1, len(bins) - 1),0)
+            indexes.append(downs_indexes)
 
-    greedy_action, _ = max(optimal_policy[state].items(), key=lambda pair: pair[1])
-    return greedy_action
+        state = np.array(indexes)
+        # TODO hardcoded variation of the state
+        near_states = [tuple(np.array([i,j,k,l]) + state) for i in [1,-1] 
+                                                          for j in [1,-1] 
+                                                          for k in [1,-1] 
+                                                          for l in [1,-1]]
+        distances = list()
+        for near_state in near_states:
+            
+            x          = self.bins_space["x_space"][near_state[0]]
+            x_dot      = self.bins_space["x_dot_space"][near_state[1]]
+            theta      = self.bins_space["theta_space"][near_state[2]]
+            theta_dot  = self.bins_space["theta_dot_space"][near_state[3]]
+            distance   = np.linalg.norm(np.array([x, x_dot, theta, theta_dot]) - state)
+            distances.append(distance)
+
+            greedy_action, _ = max(self.policy[state].items(), key=lambda pair: pair[1])
+        total_distance = sum(distances)
+        weights = [1/distance for distance in distances]        
+        
+        
+        return greedy_action
 
 
 if __name__ == "__main__":
+    
     x_lim = 2.5
     x_dot_lim = 2.5
     theta_lim = 0.25
