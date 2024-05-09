@@ -141,11 +141,13 @@ class PolicyIteration(object):
         for state in tqdm(self.states_space):
             for action in self.action_space:
                 self.env.reset()    # TODO: is this necessary? might be slow, to avoid warnings
-                self.env.state = np.array(state, dtype=np.float64)  # set the state
+                self.env.state = np.array(state, dtype=np.float32)  # set the state
                 obs, reward, terminated, done, info = self.env.step(action)
                 _, neighbors  = self.kd_tree.query([obs], k=self.num_simplex_points)
                 simplex = self.points[neighbors[0]]
                 lambdas = self.barycentric_coordinates(state, simplex)
+
+                reward = (1 if (-0.2 < obs[2] < 0.2) and (-2.4 < obs[0] < 2.4) else -1)
 
                 table[(state, action)] = {"reward": reward,
                                           "next_state": obs,
@@ -160,7 +162,9 @@ class PolicyIteration(object):
                   simplex:list, 
                   value_function)->float:
         """
-        Calculates the value for a state given the barycentric coordinates and simplex.
+        Calculates the VF interpolation for a state given the barycentric coordinates and simplex.
+        Doing this interpolation is thus mathematically equivalent to probabilistically jumping to
+        a vertex: we approximate a deterministic continuous process by a stochastic discrete one
 
         Parameters:
             lambdas (np.array): Barycentric coordinates within the simplex.
@@ -174,6 +178,7 @@ class PolicyIteration(object):
             Exception: If a state in the simplex is not found in the value function.
         """
         try:
+            
             values = np.array([value_function[tuple(e)] for e in list(simplex)])
             next_state_value = np.dot(lambdas, values)
         except (
@@ -197,16 +202,16 @@ class PolicyIteration(object):
             for state in self.states_space:
                 new_val = 0
                 for action in self.action_space:
-                    reward, next_state, simplex, bar_coor = self.transition_reward_table[(state, action)].values()
-                    next_state_value = self.get_value(bar_coor, simplex, self.value_function)
+                    reward, _, simplex, bar_coor = self.transition_reward_table[(state, action)].values()
                     # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
+                    next_state_value = self.get_value(bar_coor, simplex, self.value_function)
                     new_val += self.policy[state][action] * (reward + self.gamma * next_state_value)
                 new_value_function[state] = new_val
                 # update the error: the maximum difference between the new and old value functions
                 errors.append(abs(new_value_function[state] - self.value_function[state]))
 
             self.value_function = new_value_function # update the value function
-            
+            # log the progress
             if ii % 20 == 0:    
                 mean = np.round(np.mean(errors), 4)
                 max_error = np.round(np.max(errors),4)
@@ -230,7 +235,7 @@ class PolicyIteration(object):
         for state in tqdm(self.states_space):
             action_values = {}
             for action in self.action_space:
-                reward, next_state, simplex, bar_coor = self.transition_reward_table[(state, action)].values()
+                reward, _, simplex, bar_coor = self.transition_reward_table[(state, action)].values()
                 action_values[action] = reward + self.gamma * self.get_value(bar_coor, simplex, self.value_function)
 
             greedy_action, _ = max(action_values.items(), key=lambda pair: pair[1])
