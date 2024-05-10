@@ -253,7 +253,7 @@ class PolicyIteration(object):
         self.policy = new_policy
         return policy_stable
         
-    def run(self, nsteps:int=100):
+    def run(self, nsteps:int=1000):
         """
         Executes the Policy Iteration algorithm for a specified number of steps or until convergence.
 
