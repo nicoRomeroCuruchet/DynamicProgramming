@@ -92,6 +92,7 @@ class PolicyIteration(object):
         self.policy = {state: {action: 0.5 for action in self.action_space} for state in self.states_space}
         self.value_function = {state: 0 for state in self.states_space}
         self.transition_reward_table = None
+
         logger.info("Policy Iteration was correctly initialized.")
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         logger.info(f"The action space is: {self.action_space}")
@@ -99,7 +100,7 @@ class PolicyIteration(object):
 
     def barycentric_coordinates(self, point:np.array, simplex:list)->np.array:
         """
-        Calculates the barycentric coordinates of a point with respect to a given simplex.
+        Calculates the barycentric coordinates of point with respect to simplex.
 
         Parameters:
             point (np.array): The point for which to calculate the barycentric coordinates.
@@ -141,14 +142,12 @@ class PolicyIteration(object):
         for state in tqdm(self.states_space):
             for action in self.action_space:
                 self.env.reset()    # TODO: is this necessary? might be slow, to avoid warnings
-                self.env.state = np.array(state, dtype=np.float32)  # set the state
+                self.env.state = np.array(state, dtype=np.float64)  # set the state
                 obs, reward, terminated, done, info = self.env.step(action)
                 _, neighbors  = self.kd_tree.query([obs], k=self.num_simplex_points)
                 simplex = self.points[neighbors[0]]
                 lambdas = self.barycentric_coordinates(state, simplex)
-
-                reward = (1 if (-0.2 < obs[2] < 0.2) and (-2.4 < obs[0] < 2.4) else -1)
-
+                
                 table[(state, action)] = {"reward": reward,
                                           "next_state": obs,
                                           "simplex": simplex,
