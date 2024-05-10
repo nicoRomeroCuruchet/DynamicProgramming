@@ -129,7 +129,7 @@ class PolicyIteration(object):
     def transition_reward_function(self):
         """
         Computes the transition and reward table for each state-action pair.
-
+        
         Returns:
             dict: A dictionary containing the transition and reward information for each state-action pair.
                 The keys are tuples of the form (state, action), and the values are dictionaries with the following keys:
@@ -140,14 +140,16 @@ class PolicyIteration(object):
         """
         table = {}
         for state in tqdm(self.states_space):
+
             for action in self.action_space:
+
                 self.env.reset()    # TODO: is this necessary? might be slow, to avoid warnings
                 self.env.state = np.array(state, dtype=np.float64)  # set the state
                 obs, reward, terminated, done, info = self.env.step(action)
                 _, neighbors  = self.kd_tree.query([obs], k=self.num_simplex_points)
                 simplex = self.points[neighbors[0]]
                 lambdas = self.barycentric_coordinates(state, simplex)
-                
+
                 table[(state, action)] = {"reward": reward,
                                           "next_state": obs,
                                           "simplex": simplex,
@@ -177,7 +179,6 @@ class PolicyIteration(object):
             Exception: If a state in the simplex is not found in the value function.
         """
         try:
-            
             values = np.array([value_function[tuple(e)] for e in list(simplex)])
             next_state_value = np.dot(lambdas, values)
         except (
@@ -219,6 +220,7 @@ class PolicyIteration(object):
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
             
             ii += 1
+
         logger.info("Policy evaluation finished.")
 
     def policy_improvement(self)->bool:
