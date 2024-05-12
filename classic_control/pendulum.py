@@ -132,8 +132,8 @@ class PendulumEnv(gym.Env):
         m = self.m
         l = self.l
         dt = self.dt
-
-        u = np.clip(u, -self.max_torque, self.max_torque)[0]
+    
+        u = np.clip(u, -self.max_torque, self.max_torque)
         self.last_u = u  # for rendering
         costs = angle_normalize(th) ** 2 + 0.1 * thdot**2 + 0.001 * (u**2)
 
@@ -170,7 +170,8 @@ class PendulumEnv(gym.Env):
 
     def _get_obs(self):
         theta, thetadot = self.state
-        return np.array([np.cos(theta), np.sin(theta), thetadot], dtype=np.float32)
+        return np.array([theta, thetadot], dtype=np.float32)
+        #return np.array([np.cos(theta), np.sin(theta), thetadot], dtype=np.float32)
 
     def render(self):
         if self.render_mode is None:
