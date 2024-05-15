@@ -4,22 +4,20 @@
 This project implements the Policy Iteration algorithm tailored for environments with continuous state spaces. By discretizing the state space, the algorithm efficiently finds optimal policies for a given Markov Decision Process (MDP).
 
 
-
 ## Dependencies Installation and Setting
 - Create Conda environment with dependencies
 	``` bash
-	conda env create -f environment.yml
+	conda create --n DynamicProgramming python=3.11 ipykernel
 	```
 - Activate environment
 	``` bash
 	conda activate DynamicProgramming
 	```
-- Run Policy Iteration algorithm with the gymnasium's CartPoleEnv environment by doing:
+- Install the Policy Iteration class:
 	``` bash
-	python3 PolicyIteration.py
+	pip install -e .
 	```
-
-
+ 
 ## Features
 - Implements Policy Iteration for continuous state spaces through discretization.
 - Utilizes numerical stability techniques to ensure accurate computations.
