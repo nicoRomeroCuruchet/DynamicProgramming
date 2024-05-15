@@ -1,6 +1,6 @@
 # Policy Iteration for Continuous Dynamics
 
-This repository contains an implementation of **Policy Iteration (PI)** applied to environments with continuous dynamics.  The **Value Function (VF)** is approximated using linear interpolation within each **simplex** of the discretized state space. The interpolation coefficients act like probabilities in a stochastic process, which helps in approximating the continuous dynamics using a discrete **Markov Decision Process (MDP)**. This algorithm it was tested by the environments Cartpole and Mountain car provided by [Gymnasium](https://github.com/Farama-Foundation/Gymnasium). In particular, for the case of the mountain car, a graph of the form of the optimal value function is shown.
+This repository contains an implementation of **Policy Iteration (PI)** applied to environments with continuous dynamics.  The **Value Function (VF)** is approximated using linear interpolation within each **simplex** of the discretized state space. The interpolation coefficients act like probabilities in a stochastic process, which helps in approximating the continuous dynamics using a discrete **Markov Decision Process (MDP)**. This algorithm it was tested by the environments Cartpole and Mountain car provided by [Gymnasium](https://github.com/Farama-Foundation/Gymnasium).
 
 
 # Installation and Setting
