@@ -7,7 +7,7 @@ This project implements the Policy Iteration algorithm tailored for environments
 ## Dependencies Installation and Setting
 - Create Conda environment with dependencies
 	``` bash
-	conda create --n DynamicProgramming python=3.11 ipykernel
+	conda create --name DynamicProgramming python=3.11 ipykernel
 	```
 - Activate environment
 	``` bash
