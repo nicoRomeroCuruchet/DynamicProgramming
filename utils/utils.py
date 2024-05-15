@@ -2,7 +2,7 @@ import pickle
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
-from PolicyIteration import PolicyIteration
+from src.PolicyIteration import PolicyIteration
 
 
 def plot_2D_value_function(data: dict, normalize: bool = True, cmap:str="OrRd_r")->None:
@@ -67,8 +67,6 @@ def plot_2D_value_function(data: dict, normalize: bool = True, cmap:str="OrRd_r"
     # Show the plot
     plt.show()
     
-
-
 def plot_3D_value_function(vf: dict, normalize: bool = True, cmap:str="OrRd_r")->None:
     """
     Plots a 3D surface plot of a value function.
@@ -113,7 +111,6 @@ def plot_3D_value_function(vf: dict, normalize: bool = True, cmap:str="OrRd_r")-
     # Show the plot
     plt.show()
     
-
 def get_optimal_action(state:np.array, optimal_policy:PolicyIteration):
     """
     Aproximate the optimal action for a given state using the provided optimal policy
@@ -142,7 +139,6 @@ def get_optimal_action(state:np.array, optimal_policy:PolicyIteration):
     action = actions[argmax(probabilities)]
 
     return action
-
 
 def test_enviroment(task: gym.Env, 
                     pi: PolicyIteration, 
