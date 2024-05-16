@@ -230,10 +230,12 @@ class PolicyIteration(object):
                 indices = np.where(errs < self.theta)
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
                 plot_3D_value_function(self.value_function,
-                                       show=False, 
+                                       show=False,
+                                       number=int(self.counter*ii),
                                        path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
                 plot_2D_value_function(self.value_function,
-                                       show=False, 
+                                       show=False,
+                                       number=int(self.counter*ii), 
                                        path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter*ii}.png")
                 
             

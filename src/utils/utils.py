@@ -68,8 +68,8 @@ def plot_2D_value_function(data: dict,
     cbar = fig.colorbar(contour)
     cbar.set_label('Normalize value function')
     if number is not None:
-        fig.text(0.01, 0.99, str(number), transform=plt.gca().transAxes,
-             fontsize=12, verticalalignment='top', horizontalalignment='left')
+        fig.text(0.0001, 1, "Iteration "+str(number), transform=plt.gca().transAxes,
+             fontsize=12, verticalalignment='bottom', horizontalalignment='left')
     # save the plot in the parent directory
     plt.savefig(path)
     # Show the plot
@@ -122,7 +122,7 @@ def plot_3D_value_function(vf: dict,
     fig.colorbar(surf, shrink=0.5, aspect=35, label='Normalize value function')
 
     if number is not None:
-        fig.text(0.01, 0.99, str(number), transform=plt.gca().transAxes,
+        fig.text(0.01, 0.99, "Iteration "+str(number), transform=plt.gca().transAxes,
              fontsize=12, verticalalignment='top', horizontalalignment='left')
 
     # save the plot
