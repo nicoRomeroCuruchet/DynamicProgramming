@@ -70,6 +70,7 @@ def plot_2D_value_function(data: dict,
     plt.savefig(path)
     # Show the plot
     if show: plt.show()
+    plt.close()
     
 def plot_3D_value_function(vf: dict,
                            normalize: bool = True, 
@@ -118,6 +119,7 @@ def plot_3D_value_function(vf: dict,
     plt.savefig(path)
     # Show the plot
     if show: plt.show()
+    plt.close()
     
 def get_optimal_action(state:np.array, optimal_policy):
     """
