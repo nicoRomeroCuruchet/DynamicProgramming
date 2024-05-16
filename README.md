@@ -4,8 +4,8 @@ This repository contains an implementation of **Policy Iteration (PI)** applied 
 
 
 <p align="center">
- <img src="gifs/cartpole.gif" width="350" height="250" />  
- <img src="gifs/mountain_car.gif" width="350" height="250" />
+ <img src="gifs/cartpole.gif" width="450" height="350" />  
+ <img src="gifs/mountain_car.gif" width="450" height="350" />
 </p>
 
 
@@ -14,8 +14,8 @@ This repository contains an implementation of **Policy Iteration (PI)** applied 
 The evolution of the value function as a function of the number of iterations of the algorithm:
 
 <p align="center">
- <img src="gifs/2D_VF.gif" width="350" height="250" />  
- <img src="gifs/3D_VF.gif" width="350" height="250" />
+ <img src="gifs/2D_VF.gif" width="450" height="350" />  
+ <img src="gifs/3D_VF.gif" width="450" height="350" />
 </p>
 
 
