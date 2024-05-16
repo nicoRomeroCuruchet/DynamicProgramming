@@ -67,7 +67,7 @@ def plot_2D_value_function(data: dict,
     cbar = fig.colorbar(contour)
     cbar.set_label('Normalize value function')
     # save the plot in the parent directory
-    plt.savefig(path+'2D_value_function.png')
+    plt.savefig(path)
     # Show the plot
     if show: plt.show()
     
@@ -115,7 +115,7 @@ def plot_3D_value_function(vf: dict,
     # Add a color bar which maps values to colors
     fig.colorbar(surf, shrink=0.5, aspect=35, label='Normalize value function')
     # save the plot
-    plt.savefig(path+'3D_value_function.png')
+    plt.savefig(path)
     # Show the plot
     if show: plt.show()
     
