@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 def plot_2D_value_function(data: dict, 
                            normalize: bool = True, 
                            cmap:str='OrRd_r',
-                           show:bool=True, 
+                           show:bool=True,
+                           number:int=None,
                            path:str='')->None:
     """
     Plots a 2D value function in some color scale.
@@ -66,6 +67,9 @@ def plot_2D_value_function(data: dict,
     # Add a color bar which maps values to colors
     cbar = fig.colorbar(contour)
     cbar.set_label('Normalize value function')
+    if number is not None:
+        fig.text(0.01, 0.99, str(number), transform=plt.gca().transAxes,
+             fontsize=12, verticalalignment='top', horizontalalignment='left')
     # save the plot in the parent directory
     plt.savefig(path)
     # Show the plot
@@ -75,7 +79,8 @@ def plot_2D_value_function(data: dict,
 def plot_3D_value_function(vf: dict,
                            normalize: bool = True, 
                            cmap:str='OrRd_r',
-                           show:bool=True, 
+                           show:bool=True,
+                           number:int=None, 
                            path:str='')->None:
     """
     Plots a 3D surface plot of a value function.
@@ -115,6 +120,11 @@ def plot_3D_value_function(vf: dict,
     ax.set_yticks(np.linspace(np.min(velocities), np.max(velocities), num=4))
     # Add a color bar which maps values to colors
     fig.colorbar(surf, shrink=0.5, aspect=35, label='Normalize value function')
+
+    if number is not None:
+        fig.text(0.01, 0.99, str(number), transform=plt.gca().transAxes,
+             fontsize=12, verticalalignment='top', horizontalalignment='left')
+
     # save the plot
     plt.savefig(path)
     # Show the plot

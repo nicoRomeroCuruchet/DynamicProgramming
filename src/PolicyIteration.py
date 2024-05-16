@@ -205,6 +205,7 @@ class PolicyIteration(object):
         """
         max_error = -1.0
         ii = 0 
+        self.counter += 1
         logger.info("Starting policy evaluation")
         while abs(max_error) > self.theta:
             new_value_function = {}
@@ -230,11 +231,11 @@ class PolicyIteration(object):
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
                 plot_3D_value_function(self.value_function,
                                        show=False, 
-                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter}_{ii}.png")
+                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
                 plot_2D_value_function(self.value_function,
-                                        show=False, 
-                                        path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter}_{ii}.png")
-                self.counter += 1
+                                       show=False, 
+                                       path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter*ii}.png")
+                
             
             ii += 1
 
