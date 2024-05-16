@@ -9,7 +9,7 @@ This repository contains an implementation of **Policy Iteration (PI)** applied 
 </p>
 
 
-# Value function vs Number of iterations
+# Normalize VF vs Number of iterations
 
 The evolution of the value function as a function of the number of iterations of the algorithm:
 
