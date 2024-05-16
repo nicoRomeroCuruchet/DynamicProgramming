@@ -45,8 +45,7 @@ $$V(\xi) = \max_u \left[ \gamma^{\tau(\xi, u)} \sum_{i=0}^{d} p(\xi_i | \xi, u) 
 Here:
 
 - $ V(\xi) $ is the value function at state $\xi.$
-- $\gamma^{\tau(\xi, u)}$ is the discount factor.
-- $\tau(\xi, u)$ is the time taken to transition from state $\xi$ under control $u$.
+- $\gamma^{\tau(\xi, u)}$ is the discount factor, $\tau(\xi, u)$ is the time taken to transition from state $\xi$ under control $u$.
 - $p(\xi_i | \xi, u)$ is the probability of transitioning to state $\xi_i$ from $\xi$ under control $u$.
 - $R(\xi, u)$ is the immediate reward received from state $\xi$ under control $u$.
 
