@@ -2,10 +2,23 @@
 
 This repository contains an implementation of **Policy Iteration (PI)** applied to environments with continuous dynamics.  The **Value Function (VF)** is approximated using linear interpolation within each **simplex** of the discretized state space. The interpolation coefficients act like probabilities in a stochastic process, which helps in approximating the continuous dynamics using a discrete **Markov Decision Process (MDP)**. This algorithm it was tested by the environments Cartpole and Mountain car provided by [Gymnasium](https://github.com/Farama-Foundation/Gymnasium).
 
+
 <p align="center">
- <img src="gifs/cartpole.gif" width="400" height="300" />  
- <img src="gifs/mountain_car.gif" width="400" height="300" />
+ <img src="gifs/cartpole.gif" width="350" height="250" />  
+ <img src="gifs/mountain_car.gif" width="350" height="250" />
 </p>
+
+
+# Value function vs Number of iterations
+
+The evolution of the value function as a function of the number of iterations of the algorithm:
+
+<p align="center">
+ <img src="gifs/2D_VF.gif" width="350" height="250" />  
+ <img src="gifs/3D_VF.gif" width="350" height="250" />
+</p>
+
+
 
 # Installation and Setting
 - Create Conda environment with dependencies
@@ -53,14 +66,6 @@ Here:
 - $p(\xi_i | \xi, u)$ is the probability of transitioning to state $\xi_i$ from $\xi$ under control $u$.
 - $R(\xi, u)$ is the immediate reward received from state $\xi$ under control $u$.
 
-# Value function vs Number of iterations
-
-The evolution of the value function as a function of the number of iterations of the algorithm:
-
-<p align="center">
- <img src="gifs/2D_VF.gif" width="400" height="300" />  
- <img src="gifs/3D_VF.gif" width="400" height="300" />
-</p>
 
  
 # References
