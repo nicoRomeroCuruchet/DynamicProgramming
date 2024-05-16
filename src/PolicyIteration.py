@@ -50,6 +50,7 @@ class PolicyIteration(object):
     def __init__(self, env: gym.Env,
                  bins_space: dict,
                  action_space:list,
+                 nsteps:int=100,
                  gamma:float= 0.99,
                  theta:float= 5e-2):
         """ 
@@ -67,9 +68,11 @@ class PolicyIteration(object):
             ValueError: If action_space or bins_space is not provided or empty.
             TypeError: If action_space or bins_space is not of the correct type.
         """
-        self.env:gym.Env   = env  # working environment
+        self.env:gym.Env = env    # working environment
         self.gamma:float = gamma  # discount factor
         self.theta:float = theta  # convergence threshold for policy evaluation
+        self.nsteps:int = nsteps  # number of steps to run the policy iteration
+        self.counter:int = 0      # counter for the number of steps
 
         # if action space is not provided, raise an error
         if action_space is None: 
@@ -227,10 +230,11 @@ class PolicyIteration(object):
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
                 plot_3D_value_function(self.value_function,
                                        show=False, 
-                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{ii}.png")
+                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter}_{ii}.png")
                 plot_2D_value_function(self.value_function,
                                         show=False, 
-                                        path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{ii}.png")
+                                        path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter}_{ii}.png")
+                self.counter += 1
             
             ii += 1
 
@@ -266,17 +270,14 @@ class PolicyIteration(object):
         self.policy = new_policy
         return policy_stable
         
-    def run(self, nsteps:int=1000):
+    def run(self):
         """
-        Executes the Policy Iteration algorithm for a specified number of steps or until convergence.
-
-        Parameters:
-            nsteps (int): Maximum number of iterations to run the policy iteration.
+        Executes the Policy Iteration algorithm for a specified number of steps or until convergence..
         """
         logger.info("Generating transition and reward function table...")
         self.transition_reward_function()
         logger.info("Transition and reward function table generated.")
-        for n in tqdm(range(nsteps)):
+        for n in tqdm(range(self.nsteps)):
             logger.info(f"solving step {n}")
             self.policy_evaluation()
             if self.policy_improvement():
