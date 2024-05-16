@@ -2,6 +2,10 @@
 
 This repository contains an implementation of **Policy Iteration (PI)** applied to environments with continuous dynamics.  The **Value Function (VF)** is approximated using linear interpolation within each **simplex** of the discretized state space. The interpolation coefficients act like probabilities in a stochastic process, which helps in approximating the continuous dynamics using a discrete **Markov Decision Process (MDP)**. This algorithm it was tested by the environments Cartpole and Mountain car provided by [Gymnasium](https://github.com/Farama-Foundation/Gymnasium).
 
+<p align="center">
+ <img src="gifs/cartpole.gif" width="400" height="300" />  
+ <img src="gifs/mountain_car.gif" width="400" height="300" />
+</p>
 
 # Installation and Setting
 - Create Conda environment with dependencies
