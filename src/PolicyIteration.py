@@ -1,3 +1,4 @@
+import os
 import pickle
 import numpy as np
 from tqdm import tqdm
@@ -6,6 +7,9 @@ from loguru import logger
 from itertools import product
 from scipy.spatial import KDTree
 from scipy.optimize import minimize
+from utils.utils import plot_2D_value_function,\
+                         plot_3D_value_function
+
 
 class PolicyIteration(object):
     """
@@ -40,9 +44,12 @@ class PolicyIteration(object):
             pi = PolicyIteration(env, bins_space, action_space)
             pi.run()
     """
+
+    metadata = {"img_path": os.getcwd()+"/img/",}
+
     def __init__(self, env: gym.Env,
                  bins_space: dict,
-                 action_space,
+                 action_space:list,
                  gamma:float= 0.99,
                  theta:float= 5e-2):
         """ 
@@ -60,9 +67,9 @@ class PolicyIteration(object):
             ValueError: If action_space or bins_space is not provided or empty.
             TypeError: If action_space or bins_space is not of the correct type.
         """
-        self.env   = env
-        self.gamma = gamma  # discount factor
-        self.theta = theta  # convergence threshold for policy evaluation
+        self.env:gym.Env   = env  # working environment
+        self.gamma:float = gamma  # discount factor
+        self.theta:float = theta  # convergence threshold for policy evaluation
 
         # if action space is not provided, raise an error
         if action_space is None: 
@@ -80,8 +87,8 @@ class PolicyIteration(object):
         if not bins_space:
             raise ValueError("Bins space cannot be empty.")
 
-        self.action_space = action_space
-        self.bins_space   = bins_space
+        self.action_space:list = action_space
+        self.bins_space:dict   = bins_space
 
         self.states_space = list(
             set(product(*bins_space.values())) # to avoid repeated states
@@ -212,12 +219,18 @@ class PolicyIteration(object):
 
             self.value_function = new_value_function # update the value function
             # log the progress
-            if ii % 20 == 0:    
+            if ii % 100 == 0:    
                 mean = np.round(np.mean(errors), 4)
                 max_error = np.round(np.max(errors),4)
                 errs = np.array(errors)
                 indices = np.where(errs < self.theta)
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
+                plot_3D_value_function(self.value_function,
+                                       show=False, 
+                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{ii}.png")
+                plot_2D_value_function(self.value_function,
+                                        show=False, 
+                                        path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{ii}.png")
             
             ii += 1
 

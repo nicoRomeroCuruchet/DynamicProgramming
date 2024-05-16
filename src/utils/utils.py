@@ -2,10 +2,14 @@ import pickle
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
-from src.PolicyIteration import PolicyIteration
+#from PolicyIteration import PolicyIteration
 
 
-def plot_2D_value_function(data: dict, normalize: bool = True, cmap:str="OrRd_r")->None:
+def plot_2D_value_function(data: dict, 
+                           normalize: bool = True, 
+                           cmap:str='OrRd_r',
+                           show:bool=True, 
+                           path:str='')->None:
     """
     Plots a 2D value function in some color scale.
 
@@ -62,12 +66,16 @@ def plot_2D_value_function(data: dict, normalize: bool = True, cmap:str="OrRd_r"
     # Add a color bar which maps values to colors
     cbar = fig.colorbar(contour)
     cbar.set_label('Normalize value function')
-    # save the plot
-    plt.savefig('2D_value_function.png')
+    # save the plot in the parent directory
+    plt.savefig(path+'2D_value_function.png')
     # Show the plot
-    plt.show()
+    if show: plt.show()
     
-def plot_3D_value_function(vf: dict, normalize: bool = True, cmap:str="OrRd_r")->None:
+def plot_3D_value_function(vf: dict,
+                           normalize: bool = True, 
+                           cmap:str='OrRd_r',
+                           show:bool=True, 
+                           path:str='')->None:
     """
     Plots a 3D surface plot of a value function.
 
@@ -107,11 +115,11 @@ def plot_3D_value_function(vf: dict, normalize: bool = True, cmap:str="OrRd_r")-
     # Add a color bar which maps values to colors
     fig.colorbar(surf, shrink=0.5, aspect=35, label='Normalize value function')
     # save the plot
-    plt.savefig('3D_value_function.png')
+    plt.savefig(path+'3D_value_function.png')
     # Show the plot
-    plt.show()
+    if show: plt.show()
     
-def get_optimal_action(state:np.array, optimal_policy:PolicyIteration):
+def get_optimal_action(state:np.array, optimal_policy):
     """
     Aproximate the optimal action for a given state using the provided optimal policy
     with barycentric interpolation.
@@ -141,7 +149,7 @@ def get_optimal_action(state:np.array, optimal_policy:PolicyIteration):
     return action
 
 def test_enviroment(task: gym.Env, 
-                    pi: PolicyIteration, 
+                    pi, 
                     num_episodes: int = 10000, 
                     episode_lengh: int = 1000,
                     option_reset:dict=None):
