@@ -34,6 +34,7 @@ The evolution of the value function  for the mountain car as a function of the n
 # Files
 
  - **src/PolicyIteration.py**: This is the implementation of the policy iteration algorithm, interpolating the value function with the vertices of a simplex.
+ - **src/utils/utils.py**: Contains auxiliary functions for testing the environments with the already calculated value function and functions for plotting it.
  - **testing.ipynb**: This is a notebook for testing the algorithm in the cartpole and mountain car environments.
 
 # Simplex in This Project
