@@ -11,15 +11,12 @@ This repository contains an implementation of **Policy Iteration (PI)** applied 
 
 # Normalize VF vs Number of iterations
 
-The evolution of the value function as a function of the number of iterations of the algorithm:
+The evolution of the value function  for the mountain car as a function of the number of iterations of the algorithm:
 
 <p align="center">
  <img src="gifs/2D_VF.gif" width="400" height="300" />  
  <img src="gifs/3D_VF.gif" width="400" height="300" />
 </p>
-
-Evolution of the value function for the mountain car.
-
 
 # Installation and Setting
 - Create Conda environment with dependencies
