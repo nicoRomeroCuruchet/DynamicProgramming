@@ -18,6 +18,7 @@ The evolution of the value function as a function of the number of iterations of
  <img src="gifs/3D_VF.gif" width="400" height="300" />
 </p>
 
+Evolution of the value function for the mountain car.
 
 
 # Installation and Setting
