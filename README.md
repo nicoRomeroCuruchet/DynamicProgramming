@@ -19,6 +19,11 @@ The evolution of the value function  for the mountain car as a function of the n
 </p>
 
 # Installation and Setting
+
+- Clone the project
+ 	``` bash
+    git clone https://github.com/nicoRomeroCuruchet/DynamicProgramming.git
+	```
 - Create Conda environment with dependencies
 	``` bash
 	conda create --name DynamicProgramming python=3.11 ipykernel
