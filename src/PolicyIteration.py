@@ -98,8 +98,8 @@ class PolicyIteration(object):
         )
         self.points = np.array([np.array(e) for e in self.states_space])
         self.kd_tree = KDTree(self.points)
-        self.num_simplex_points = int(self.points[0].shape[0] + 1)
-        self.policy = {state: {action: 0.5 for action in self.action_space} for state in self.states_space}
+        self.num_simplex_points = 50 #int(self.points[0].shape[0] + 1) # number of points in a simplex
+        self.policy = {state: {action: 1.0 / len(self.action_space)  for action in self.action_space} for state in self.states_space}
         self.value_function = {state: 0 for state in self.states_space}
         self.transition_reward_table = None
 
@@ -108,7 +108,48 @@ class PolicyIteration(object):
         logger.info(f"The action space is: {self.action_space}")
         logger.info(f"Number of states: {len(self.states_space)}")
 
-    def barycentric_coordinates(self, point:np.array, simplex:list)->np.array:
+
+    def billinear_interpolation(self, point:np.array, simplex:list)->np.array:
+        
+        """ Suppose that we want to find the value of the unknown function f at the point (x, y). 
+        It is assumed that we know the value of f at the four points Q11 = (x1, y1), Q12 = (x1, y2), 
+        Q21 = (x2, y1), and Q22 = (x2, y2). `bilinear_interpolation` returns the bilinear interpolation"""
+
+        r   = np.array(point)
+        r_1 = np.array(simplex[0])
+        r_2 = np.array(simplex[1])
+        r_3 = np.array(simplex[2])
+        r_4 = np.array(simplex[3])
+
+        return (r_1[0] * r_1[1] * r_4 + r_2[0] * r_3[1] * r_4 + r_3[0] * r_1[1] * r_4 + r_4[0] * r_3[1] * r_1) / (r_1[0] * r_2[1] + r_2[0] * 
+        r_3[1] + r_3[0] * r_1[1] + r_4[0] * r_3[1])
+
+
+    def barycentric_coordinates_v1(self, point:np.array, simplex:list)->np.array:
+        
+        """
+        this method is not used in the current implementation, but is to calculate 
+        the 2D vector barycentric coordinates 
+        """
+        
+        r   = np.array(point)
+        r_1 = np.array(simplex[0])
+        r_2 = np.array(simplex[1])
+        r_3 = np.array(simplex[2])
+
+        lambda_1 = 0
+        lambda_2 = 0
+        d = np.cross(r_1 - r_3, r_2 - r_3)
+        if d > 0:
+            lambda_1 = np.cross(r - r_3, r_2 - r_3) / d
+            lambda_2 = np.cross(r - r_3, r_3 - r_1) / d
+        else:
+            lambda_1 = 1/3
+            lambda_2 = 1/3
+
+        return np.array([lambda_1, lambda_2, 1 - lambda_1 - lambda_2])
+
+    def barycentric_coordinates_v4(self, point:np.array, simplex:list)->np.array:
         """
         Calculates the barycentric coordinates of point with respect to simplex.
 
@@ -119,23 +160,110 @@ class PolicyIteration(object):
         Returns:
             np.array: The barycentric coordinates of the point.
         """
+        x_cord = simplex[0][0]
+        index_x = 0
+        for s in simplex:
+            if s[0] != x_cord: 
+                break # evil code!
+            index_x += 1
+        if index_x < 2: index_x = 2
         # Formulate the system of equations
-        A = np.vstack([np.array(simplex).T, np.ones(len(simplex))])
+        rows_indexes = [0,1,index_x]
+        mat = np.array(simplex)
+        mat = mat[rows_indexes,:]
+        # Formulate the system of equations
+        A = np.vstack([mat.T, np.ones(len(mat))])
         b = np.hstack([point, [1]])
+        # Solve the system of equations
         objective_function = lambda x: np.linalg.norm(A.dot(x) - b)
         # Define the constraint that the solution must be greater than zero
         constraints = ({'type': 'ineq', 'fun': lambda x: x})
         # Initial guess for the solution
-        x0 = np.ones(len(simplex)) / self.num_simplex_points
+        x0 = np.ones(3) / 3
         # Solve the optimization problem
         result = minimize(objective_function,
                           x0,
                           constraints=constraints,
                           tol=1e-3)
+        
         # The approximate solution
         x_approx = result.x
-        return x_approx
+        return x_approx, mat
+    
+    def barycentric_coordinates_v3(self, point:np.array, simplex:list)->np.array:
+        """
+        Calculates the barycentric coordinates of point with respect to simplex.
 
+        Parameters:
+            point (np.array): The point for which to calculate the barycentric coordinates.
+            simplex (list): The simplex as a list of points defining the simplex vertices.
+
+        Returns:
+            np.array: The barycentric coordinates of the point.
+        """
+        x_cord = simplex[0][0]
+        index_x = 0
+        for s in simplex:
+            if s[0] != x_cord: 
+                break # evil code!
+            index_x += 1
+        if index_x < 2: index_x = 2
+        # Formulate the system of equations
+        rows_indexes = [0,1,index_x]
+        mat = np.array(simplex)
+        mat = mat[rows_indexes,:]
+        A = np.vstack([mat.T, np.ones(len(mat))])
+        b = np.hstack([point, [1]])
+        try:
+            inv_A = np.linalg.inv(A)
+        except:
+            print(index_x)
+            print(simplex)
+            print(A.T)
+            
+
+        print(A)
+        print("inv A:",inv_A)
+        print("b:",b.T)
+        x = inv_A.dot(b.T)
+        print(x)
+       
+        
+        return x
+
+    def barycentric_coordinates_v2(self, point:np.array, simplex:list)->np.array:
+
+        #print("point:",point)
+        #print("simplex:",simplex)
+        x_cord = simplex[0][0]
+        index_x = 0
+        for s in simplex:
+            if s[0] != x_cord: 
+                break # evil code!
+            index_x += 1
+        if index_x < 2: index_x = 2
+        # Formulate the system of equations
+        rows_indexes = [0,1,index_x]
+        mat = np.array(simplex)
+        mat = mat[rows_indexes,:]
+        a = mat[0]
+        b = mat[1]
+        c = mat[2]
+        p = point
+        v0 = b - a
+        v1 = c - a
+        v2 = p - a
+
+        # Compute the denominator
+        den = v0[0] * v1[1] - v1[0] * v0[1]
+
+        # Calculate barycentric coordinates
+        v = (v2[0] * v1[1] - v1[0] * v2[1]) / den
+        w = (v0[0] * v2[1] - v2[0] * v0[1]) / den
+        u = 1.0 - v - w
+
+        return np.array([u, v, w]), mat
+    
     def transition_reward_function(self):
         """
         Computes the transition and reward table for each state-action pair.
@@ -156,9 +284,10 @@ class PolicyIteration(object):
                 self.env.reset()    # TODO: is this necessary? might be slow, to avoid warnings
                 self.env.state = np.array(state, dtype=np.float64)  # set the state
                 obs, reward, terminated, done, info = self.env.step(action)
-                _, neighbors  = self.kd_tree.query([obs], k=self.num_simplex_points)
-                simplex = self.points[neighbors[0]]
-                lambdas = self.barycentric_coordinates(state, simplex)
+                _, neighbors  = self.kd_tree.query(obs, k=self.num_simplex_points)
+                
+                simplex = self.points[neighbors]
+                lambdas, simplex = self.barycentric_coordinates_v2(np.array(obs), simplex)
 
                 table[(state, action)] = {"reward": reward,
                                           "next_state": obs,

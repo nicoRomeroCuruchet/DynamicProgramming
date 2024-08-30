@@ -145,8 +145,8 @@ def get_optimal_action(state:np.array, optimal_policy):
     """
     _, neighbors  = optimal_policy.kd_tree.query([state], k=optimal_policy.num_simplex_points)
     simplex       = optimal_policy.points[neighbors[0]]
-    lambdas       = optimal_policy.barycentric_coordinates(state, simplex)
-
+    
+    lambdas, _       = optimal_policy.barycentric_coordinates_v2(state, simplex)
     actions = optimal_policy.action_space
     probabilities = np.zeros(len(actions))
 
@@ -162,9 +162,9 @@ def get_optimal_action(state:np.array, optimal_policy):
 
 def test_enviroment(task: gym.Env, 
                     pi, 
-                    num_episodes: int = 10000, 
-                    episode_lengh: int = 1000,
-                    option_reset:dict=None):
+                    num_episodes:  int  = 10000, 
+                    episode_lengh: int  = 1000,
+                    option_reset:  dict = None):
     """
     Test the environment using the given policy iteration algorithm.
 
