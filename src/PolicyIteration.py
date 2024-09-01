@@ -107,9 +107,9 @@ class PolicyIteration(object):
         self.triangulation = Delaunay(self.states_space)
         logger.info("Delaunay triangulation created.")
     
-        #plt.plot(self.points[:, 0], self.points[:, 1], 'go', label='Data Points', markersize=2)
+        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
         # plot the triangulation
-        #plt.triplot(self.points[:, 0], self.points[:, 1], self.triangulation.simplices)
+        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
         #plt.scatter(-1.2,  0. , color='Red', s=10)
         #plt.show()
 
