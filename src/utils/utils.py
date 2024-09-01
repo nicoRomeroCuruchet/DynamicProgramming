@@ -76,7 +76,8 @@ def plot_2D_value_function(data: dict,
     if show: plt.show()
     plt.close()
     
-def plot_3D_value_function(vf: dict,
+def plot_3D_value_function(vf: np.array,
+                           grid: np.array,
                            normalize: bool = True, 
                            cmap:str='OrRd_r',
                            show:bool=True,
@@ -93,31 +94,25 @@ def plot_3D_value_function(vf: dict,
     Returns:
     None
     """
-    # Extract position, velocity, and meaning from the dictionary
-    positions = [key[0] for key in vf.keys()]
-    velocities = [key[1] for key in vf.keys()]
-    max = np.max(list(vf.values())) if normalize else 1.0
-    # Create grid vf
-    pos_grid, vel_grid = np.meshgrid(np.unique(positions), np.unique(velocities))
+    if normalize:
+        # normalize the value function
+        min_value = np.min(vf)
+        max_value = np.max(vf)
+        vf = (vf - min_value) / (max_value - min_value) if max_value > min_value else np.zeros_like(vf)
+
+    points = np.vstack([g.ravel() for g in grid], dtype=np.float32).T
     # Create a grid for the meanings
-    mean_grid = np.zeros_like(pos_grid, dtype=float)
-    # Normalize the meanings
-    for i in range(pos_grid.shape[0]):
-        for j in range(pos_grid.shape[1]):
-            pos = pos_grid[i, j]
-            vel = vel_grid[i, j]
-            mean_grid[i, j] = vf.get((pos, vel), np.nan)  / max # Use np.nan for missing values
 
     # Create a 3D plot
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     # Plot the surface
-    surf = ax.plot_surface(pos_grid, vel_grid, mean_grid, cmap=cmap)
+    surf = ax.plot_surface(points[:, 0], points[:, 0], vf, cmap=cmap)
     # Set labels
     ax.set_xlabel('Position')
     ax.set_ylabel('Velocity')
-    ax.set_xticks(np.linspace(np.min(positions), np.max(positions), num=5))
-    ax.set_yticks(np.linspace(np.min(velocities), np.max(velocities), num=4))
+    ax.set_xticks(np.linspace(np.min(points[:, 0]), np.max(points[:, 0]), num=5))
+    ax.set_yticks(np.linspace(np.min(points[:, 1]), np.max(points[:, 1]), num=4))
     # Add a color bar which maps values to colors
     fig.colorbar(surf, shrink=0.5, aspect=35, label='Normalize value function')
 
@@ -131,7 +126,7 @@ def plot_3D_value_function(vf: dict,
     if show: plt.show()
     plt.close()
     
-def get_optimal_action(state:np.array, optimal_policy):
+def get_optimal_action(state:np.array, optimal_policy:np.array):
     """
     Aproximate the optimal action for a given state using the provided optimal policy
     with barycentric interpolation.
@@ -143,24 +138,25 @@ def get_optimal_action(state:np.array, optimal_policy):
     Returns:
     action: The optimal action for the given state.
     """    
-    lambdas, vertices_coordinates  = optimal_policy.barycentric_coordinates(state)
+    lambdas, simmplex_info  = optimal_policy.barycentric_coordinates(state)
+    simplex, points_indexes = simmplex_info
     actions = optimal_policy.action_space
-    probabilities = np.zeros(len(actions))
+    probabilities = np.zeros(len(actions), dtype=np.float32)
 
-    if np.linalg.norm(np.array(lambdas, dtype=np.float32).dot(vertices_coordinates) - state)>1e-2 :
+    if np.linalg.norm(np.array(lambdas, dtype=np.float32).dot(simplex) - state) > 1e-2 :
         raise ValueError("The state is not in the linear combination by the vertices of the simplex")
 
+    # reshape the lambdas to be a column vector to use enumerate
+    lambdas = np.array(lambdas).reshape(-1, 1)
     for i, l in enumerate(lambdas):
         for j, action in enumerate(actions):
-            if optimal_policy.policy[tuple(vertices_coordinates[i])][action] > 0:
-                probabilities[j] += l
+            probabilities[j] += l * optimal_policy.policy[points_indexes[i]][j]
     
     if abs(np.sum(probabilities)-1) > 1e-2:
         raise ValueError("The probabilities do not sum to 1")
-
+    
     argmax = lambda x: max(enumerate(x), key=lambda x: x[1])[0]
     action = actions[argmax(probabilities)]
-
     return action
 
 def test_enviroment(task: gym.Env, 
