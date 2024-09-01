@@ -142,18 +142,21 @@ def get_optimal_action(state:np.array, optimal_policy):
 
     Returns:
     action: The optimal action for the given state.
-    """
-    _, neighbors  = optimal_policy.kd_tree.query([state], k=optimal_policy.num_simplex_points)
-    simplex       = optimal_policy.points[neighbors[0]]
-    
-    lambdas, _       = optimal_policy.barycentric_coordinates_v2(state, simplex)
+    """    
+    lambdas, vertices_coordinates  = optimal_policy.barycentric_coordinates(state)
     actions = optimal_policy.action_space
     probabilities = np.zeros(len(actions))
 
+    if np.linalg.norm(np.array(lambdas, dtype=np.float32).dot(vertices_coordinates) - state)>1e-2 :
+        raise ValueError("The state is not in the linear combination by the vertices of the simplex")
+
     for i, l in enumerate(lambdas):
         for j, action in enumerate(actions):
-            if optimal_policy.policy[tuple(simplex[i])][action] > 0:
+            if optimal_policy.policy[tuple(vertices_coordinates[i])][action] > 0:
                 probabilities[j] += l
+    
+    if abs(np.sum(probabilities)-1) > 1e-2:
+        raise ValueError("The probabilities do not sum to 1")
 
     argmax = lambda x: max(enumerate(x), key=lambda x: x[1])[0]
     action = actions[argmax(probabilities)]

@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import gymnasium as gym
 from loguru import logger
-from itertools import product
-from scipy.spatial import KDTree
+import matplotlib.pyplot as plt
+from scipy.spatial import Delaunay
 from scipy.optimize import minimize
 from utils.utils import plot_2D_value_function,\
                          plot_3D_value_function
@@ -93,14 +93,31 @@ class PolicyIteration(object):
         self.action_space:list = action_space
         self.bins_space:dict   = bins_space
 
-        self.states_space = list(
-            set(product(*bins_space.values())) # to avoid repeated states
-        )
-        self.points = np.array([np.array(e) for e in self.states_space])
-        self.kd_tree = KDTree(self.points)
-        self.num_simplex_points = 50 #int(self.points[0].shape[0] + 1) # number of points in a simplex
-        self.policy = {state: {action: 1.0 / len(self.action_space)  for action in self.action_space} for state in self.states_space}
-        self.value_function = {state: 0 for state in self.states_space}
+        #get the minimum and maximum values for each dimension       
+        self.cell_lower_bounds = np.array([min(v) for v in self.bins_space.values()], dtype=np.float32)
+        self.cell_upper_bounds = np.array([max(v) for v in self.bins_space.values()], dtype=np.float32)
+        logger.info(f"Lower bounds: {self.cell_lower_bounds}")
+        logger.info(f"Upper bounds: {self.cell_upper_bounds}")
+        # Generate the grid points for all dimensions
+        grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
+        # Flatten and stack to create a list of points in the space
+        self.points = np.vstack([g.ravel() for g in grid], dtype=np.float32).T
+        # Create the Delaunay triangulation
+        logger.info("Creating Delaunay triangulation...")
+        self.triangulation = Delaunay(self.points)
+        logger.info("Delaunay triangulation created.")
+    
+        #plt.plot(self.points[:, 0], self.points[:, 1], 'go', label='Data Points', markersize=2)
+        # plot the triangulation
+        #plt.triplot(self.points[:, 0], self.points[:, 1], self.triangulation.simplices)
+        #plt.scatter(-1.2,  0. , color='Red', s=10)
+        #plt.show()
+
+        self.states_space = list(self.points)
+        self.num_simplex_points = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
+
+        self.policy = {tuple(state): {action: 1.0 / len(self.action_space) for action in self.action_space} for state in self.states_space}
+        self.value_function = {tuple(state): 0 for state in self.states_space}
         self.transition_reward_table = None
 
         logger.info("Policy Iteration was correctly initialized.")
@@ -108,161 +125,105 @@ class PolicyIteration(object):
         logger.info(f"The action space is: {self.action_space}")
         logger.info(f"Number of states: {len(self.states_space)}")
 
-
-    def billinear_interpolation(self, point:np.array, simplex:list)->np.array:
-        
-        """ Suppose that we want to find the value of the unknown function f at the point (x, y). 
-        It is assumed that we know the value of f at the four points Q11 = (x1, y1), Q12 = (x1, y2), 
-        Q21 = (x2, y1), and Q22 = (x2, y2). `bilinear_interpolation` returns the bilinear interpolation"""
-
-        r   = np.array(point)
-        r_1 = np.array(simplex[0])
-        r_2 = np.array(simplex[1])
-        r_3 = np.array(simplex[2])
-        r_4 = np.array(simplex[3])
-
-        return (r_1[0] * r_1[1] * r_4 + r_2[0] * r_3[1] * r_4 + r_3[0] * r_1[1] * r_4 + r_4[0] * r_3[1] * r_1) / (r_1[0] * r_2[1] + r_2[0] * 
-        r_3[1] + r_3[0] * r_1[1] + r_4[0] * r_3[1])
-
-
-    def barycentric_coordinates_v1(self, point:np.array, simplex:list)->np.array:
-        
+    def __check_state__(self, obs:np.array)->bool:
         """
-        this method is not used in the current implementation, but is to calculate 
-        the 2D vector barycentric coordinates 
-        """
-        
-        r   = np.array(point)
-        r_1 = np.array(simplex[0])
-        r_2 = np.array(simplex[1])
-        r_3 = np.array(simplex[2])
+        Checks if the given state is within the bounds of the environment.
 
-        lambda_1 = 0
-        lambda_2 = 0
-        d = np.cross(r_1 - r_3, r_2 - r_3)
-        if d > 0:
-            lambda_1 = np.cross(r - r_3, r_2 - r_3) / d
-            lambda_2 = np.cross(r - r_3, r_3 - r_1) / d
+        Parameters:
+            obs (np.array): The obs to check.
+
+        Returns:
+            bool: True if the obs is within the bounds, False otherwise.
+        """ 
+        return np.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds))
+
+    def barycentric_coordinates_2D(self, point:np.array)->tuple:
+        """
+        Calculates the barycentric coordinates of a 2D point within a convex hull.
+        Parameters:
+        - point: np.array
+            The 2D point for which to calculate the barycentric coordinates.
+        Returns:
+        - result: np.array
+            The barycentric coordinates of the point.
+        - vertices_coordinates: np.array
+            The coordinates of the vertices of the simplex containing the point.
+        Raises:
+        - ValueError: If the point is outside the convex hull.
+        """
+        simplex_index = self.triangulation.find_simplex(point)
+        if simplex_index != -1:  # -1 indicates that the point is outside the convex hull
+            simplex_vertices = self.triangulation.simplices[simplex_index]
+            vertices_coordinates = self.points[simplex_vertices]
         else:
-            lambda_1 = 1/3
-            lambda_2 = 1/3
-
-        return np.array([lambda_1, lambda_2, 1 - lambda_1 - lambda_2])
-
-    def barycentric_coordinates_v4(self, point:np.array, simplex:list)->np.array:
-        """
-        Calculates the barycentric coordinates of point with respect to simplex.
-
-        Parameters:
-            point (np.array): The point for which to calculate the barycentric coordinates.
-            simplex (list): The simplex as a list of points defining the simplex vertices.
-
-        Returns:
-            np.array: The barycentric coordinates of the point.
-        """
-        x_cord = simplex[0][0]
-        index_x = 0
-        for s in simplex:
-            if s[0] != x_cord: 
-                break # evil code!
-            index_x += 1
-        if index_x < 2: index_x = 2
-        # Formulate the system of equations
-        rows_indexes = [0,1,index_x]
-        mat = np.array(simplex)
-        mat = mat[rows_indexes,:]
-        # Formulate the system of equations
-        A = np.vstack([mat.T, np.ones(len(mat))])
-        b = np.hstack([point, [1]])
-        # Solve the system of equations
-        objective_function = lambda x: np.linalg.norm(A.dot(x) - b)
-        # Define the constraint that the solution must be greater than zero
-        constraints = ({'type': 'ineq', 'fun': lambda x: x})
-        # Initial guess for the solution
-        x0 = np.ones(3) / 3
-        # Solve the optimization problem
-        result = minimize(objective_function,
-                          x0,
-                          constraints=constraints,
-                          tol=1e-3)
+            logger.error(f"The point {point} is outside the convex hull.")
+            raise ValueError(f"The point {point} is outside the convex hull.")
         
-        # The approximate solution
-        x_approx = result.x
-        return x_approx, mat
-    
-    def barycentric_coordinates_v3(self, point:np.array, simplex:list)->np.array:
-        """
-        Calculates the barycentric coordinates of point with respect to simplex.
-
-        Parameters:
-            point (np.array): The point for which to calculate the barycentric coordinates.
-            simplex (list): The simplex as a list of points defining the simplex vertices.
-
-        Returns:
-            np.array: The barycentric coordinates of the point.
-        """
-        x_cord = simplex[0][0]
-        index_x = 0
-        for s in simplex:
-            if s[0] != x_cord: 
-                break # evil code!
-            index_x += 1
-        if index_x < 2: index_x = 2
-        # Formulate the system of equations
-        rows_indexes = [0,1,index_x]
-        mat = np.array(simplex)
-        mat = mat[rows_indexes,:]
-        A = np.vstack([mat.T, np.ones(len(mat))])
-        b = np.hstack([point, [1]])
-        try:
-            inv_A = np.linalg.inv(A)
-        except:
-            print(index_x)
-            print(simplex)
-            print(A.T)
-            
-
-        print(A)
-        print("inv A:",inv_A)
-        print("b:",b.T)
-        x = inv_A.dot(b.T)
-        print(x)
-       
-        
-        return x
-
-    def barycentric_coordinates_v2(self, point:np.array, simplex:list)->np.array:
-
-        #print("point:",point)
-        #print("simplex:",simplex)
-        x_cord = simplex[0][0]
-        index_x = 0
-        for s in simplex:
-            if s[0] != x_cord: 
-                break # evil code!
-            index_x += 1
-        if index_x < 2: index_x = 2
-        # Formulate the system of equations
-        rows_indexes = [0,1,index_x]
-        mat = np.array(simplex)
-        mat = mat[rows_indexes,:]
-        a = mat[0]
-        b = mat[1]
-        c = mat[2]
-        p = point
-        v0 = b - a
-        v1 = c - a
-        v2 = p - a
-
+        vertices_coordinates = self.points[simplex_vertices]
+        a, b, c = vertices_coordinates[0], vertices_coordinates[1],  vertices_coordinates[2]
+        v0, v1, v2 = b - a, c - a, point - a
         # Compute the denominator
         den = v0[0] * v1[1] - v1[0] * v0[1]
-
         # Calculate barycentric coordinates
         v = (v2[0] * v1[1] - v1[0] * v2[1]) / den
         w = (v0[0] * v2[1] - v2[0] * v0[1]) / den
         u = 1.0 - v - w
+        # Check if the point is inside the simplex
+        result = np.array([u, v, w], dtype=np.float32)
+        if np.any(result < -1.0e-2) and abs(np.sum(result) - 1.0) > 1.0e-2:
+            logger.error(f"The point {point} is outside the convex hull.")
+            raise ValueError(f"The point {point} is outside the convex hull.")
+        
+        return result, np.array(vertices_coordinates, dtype=np.float32)
+    
+    def barycentric_coordinates(self, point:np.array)->tuple:
 
-        return np.array([u, v, w]), mat
+        """
+        Calculates the barycentric coordinates of a 2D point within a convex hull.
+        Parameters:
+        - point: np.array
+            The 2D point for which to calculate the barycentric coordinates.
+        Returns:
+        - result: np.array
+            The barycentric coordinates of the point.
+        - vertices_coordinates: np.array
+            The coordinates of the vertices of the simplex containing the point.
+        Raises:
+        - ValueError: If the point is outside the convex hull.
+        """
+
+        simplex_index = self.triangulation.find_simplex(point)
+        if simplex_index != -1:  # -1 indicates that the point is outside the convex hull
+            simplex_vertices = self.triangulation.simplices[simplex_index]
+            vertices_coordinates = self.points[simplex_vertices]
+        else:
+            # raise an error
+            raise ValueError(f"The point {point} is outside the convex hull.")
+        
+        simplex = self.points[simplex_vertices]
+        A = np.vstack([simplex.T, np.ones(len(simplex))])
+        b = np.hstack([point, [1]])
+       
+        try:
+            inv_A = np.linalg.inv(A)
+
+        except np.linalg.LinAlgError as e:
+            #penrose-Moore pseudo inverse and log
+            inv_A = np.linalg.pinv(A)
+            logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
+            #log the simplex
+            logger.warning(f"Simplex: {simplex} and the point is {point}")
+
+        # barycentric coordinates
+        lambdas = inv_A.dot(b)
+        # Check if the point is inside the simplex
+        # Check if the point is inside the simplex
+        result = np.array(lambdas, dtype=np.float32)
+        if np.any(result < -1.0e-2) and abs(np.sum(result) - 1.0) > 1.0e-2:
+            logger.error(f"The point {point} is outside the convex hull.")
+            raise ValueError(f"The point {point} is outside the convex hull.")
+        
+        return result, np.array(vertices_coordinates, dtype=np.float32)
     
     def transition_reward_function(self):
         """
@@ -272,6 +233,7 @@ class PolicyIteration(object):
             dict: A dictionary containing the transition and reward information for each state-action pair.
                 The keys are tuples of the form (state, action), and the values are dictionaries with the following keys:
                 - "reward": The reward obtained when taking the specified action in the given state.
+                - "previous_state": The state from which the action was taken.
                 - "next_state": The resulting state after taking the specified action in the given state.
                 - "simplex": The simplex associated with the resulting state.
                 - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
@@ -280,19 +242,22 @@ class PolicyIteration(object):
         for state in tqdm(self.states_space):
 
             for action in self.action_space:
+                self.env.state = np.array(state, dtype=np.float32)           # set the state
+                obs, reward, _, _, _ = self.env.step(action)  # take the action
 
-                self.env.reset()    # TODO: is this necessary? might be slow, to avoid warnings
-                self.env.state = np.array(state, dtype=np.float64)  # set the state
-                obs, reward, terminated, done, info = self.env.step(action)
-                _, neighbors  = self.kd_tree.query(obs, k=self.num_simplex_points)
+                #print(state, obs, self.env.observation_space.contains(obs))
+                if not self.__check_state__(obs):
+                    logger.warning(f"State {obs} is outside the bounds of the environment.")
+                    obs = np.array(state, dtype=np.float32) # get back to the previous state
+                    reward = -1000.0
+                    
+                lambdas, simplex = self.barycentric_coordinates(np.array(obs, dtype=np.float32))
                 
-                simplex = self.points[neighbors]
-                lambdas, simplex = self.barycentric_coordinates_v2(np.array(obs), simplex)
-
-                table[(state, action)] = {"reward": reward,
-                                          "next_state": obs,
-                                          "simplex": simplex,
-                                          "barycentric_coordinates": lambdas}
+                table[(tuple(state), action)] = {"reward"                 : reward,
+                                                 "previous_state"         : state,
+                                                 "next_state"             : obs,
+                                                 "simplex"                : simplex,
+                                                 "barycentric_coordinates": lambdas}
                 
         self.transition_reward_table = table
         
@@ -324,6 +289,7 @@ class PolicyIteration(object):
             KeyError
         ):
             logger.error(f"States in {simplex} not found in the value function.")
+            next_state_value = 0
             raise Exception(f"States in {simplex} not found in the value function.")
 
         return next_state_value
@@ -342,19 +308,19 @@ class PolicyIteration(object):
             for state in self.states_space:
                 new_val = 0
                 for action in self.action_space:
-                    reward, _, simplex, bar_coor = self.transition_reward_table[(state, action)].values()
+                    reward, _, _, simplex, bar_coor = self.transition_reward_table[(tuple(state), action)].values()
                     # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
                     next_state_value = self.get_value(bar_coor, simplex, self.value_function)
-                    new_val += self.policy[state][action] * (reward + self.gamma * next_state_value)
-                new_value_function[state] = new_val
+                    new_val += self.policy[tuple(state)][action] * (reward + self.gamma * next_state_value)
+                new_value_function[tuple(state)] = new_val
                 # update the error: the maximum difference between the new and old value functions
-                errors.append(abs(new_value_function[state] - self.value_function[state]))
+                errors.append(abs(new_value_function[tuple(state)] - self.value_function[tuple(state)]))
 
             self.value_function = new_value_function # update the value function
             # log the progress
             if ii % 100 == 0:    
-                mean = np.round(np.mean(errors), 4)
-                max_error = np.round(np.max(errors),4)
+                mean = np.round(np.mean(errors), 6)
+                max_error = np.round(np.max(errors),6)
                 errs = np.array(errors)
                 indices = np.where(errs < self.theta)
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
@@ -385,17 +351,17 @@ class PolicyIteration(object):
         for state in tqdm(self.states_space):
             action_values = {}
             for action in self.action_space:
-                reward, _, simplex, bar_coor = self.transition_reward_table[(state, action)].values()
+                reward,_, _, simplex, bar_coor = self.transition_reward_table[(tuple(state), action)].values()
                 action_values[action] = reward + self.gamma * self.get_value(bar_coor, simplex, self.value_function)
 
             greedy_action, _ = max(action_values.items(), key=lambda pair: pair[1])
             
-            new_policy[state] = {
+            new_policy[tuple(state)] = {
                 action: int(action == greedy_action) for action in self.action_space
             }
         if self.policy != new_policy:
             logger.info(f"The number of updated different actions:\
-                        {sum([self.policy[state] != new_policy[state] for state in self.states_space])}")
+                        {sum([self.policy[tuple(state)] != new_policy[tuple(state)] for state in self.states_space])}")
             policy_stable = False
 
         logger.info("Policy improvement finished.")
