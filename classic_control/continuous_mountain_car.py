@@ -124,8 +124,8 @@ class Continuous_MountainCarEnv(gym.Env):
             0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
         )
         self.goal_velocity = goal_velocity
-        self.power = 0.0015
-
+        self.power = 0.0008 # 0.0015
+ 
         self.low_state = np.array(
             [self.min_position, -self.max_speed], dtype=np.float32
         )

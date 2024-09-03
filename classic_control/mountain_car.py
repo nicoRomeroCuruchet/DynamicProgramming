@@ -142,10 +142,21 @@ class MountainCarEnv(gym.Env):
         if position == self.min_position and velocity < 0:
             velocity = 0
 
+        #terminated = bool(
+        #    position >= self.goal_position and velocity >= self.goal_velocity
+        #)
+        #reward = -1.0
+
+
+        # Convert a possible numpy bool to a Python bool.
         terminated = bool(
             position >= self.goal_position and velocity >= self.goal_velocity
         )
-        reward = -1.0
+
+        reward = 0
+        if terminated:
+            reward = 100.0
+        reward -= math.pow(action, 2) * 0.1
 
         self.state = (position, velocity)
         if self.render_mode == "human":
