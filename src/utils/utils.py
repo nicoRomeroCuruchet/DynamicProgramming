@@ -77,7 +77,7 @@ def plot_2D_value_function(data: dict,
     plt.close()
     
 def plot_3D_value_function(vf: np.array,
-                           grid: np.array,
+                           points: np.array,
                            normalize: bool = True, 
                            cmap:str='OrRd_r',
                            show:bool=True,
@@ -94,37 +94,44 @@ def plot_3D_value_function(vf: np.array,
     Returns:
     None
     """
-    if normalize:
-        # normalize the value function
-        min_value = np.min(vf)
-        max_value = np.max(vf)
-        vf = (vf - min_value) / (max_value - min_value) if max_value > min_value else np.zeros_like(vf)
 
-    points = np.vstack([g.ravel() for g in grid], dtype=np.float32).T
-    # Create a grid for the meanings
+    # Assuming points is a 2D array where each row is a point [position, velocity]
+    positions  = points[:, 0]       # x-axis (position)
+    velocities = points[:, 1]       # y-axis (velocity)
+    values     = vf                 # z-axis (value function)
+    
+    # normalize the value function
+    if normalize:
+        min_value = np.min(values)
+        max_value = np.max(values)
+        values = (values - min_value) / (max_value - min_value) if max_value > min_value else np.zeros_like(values)
+    # Determine the unique grid sizes
+    x_unique = np.unique(positions)
+    y_unique = np.unique(velocities)
+
+    # Reshape the position, velocity, and value arrays into 2D grids
+    X, Y = np.meshgrid(x_unique, y_unique)
+    Z = values.reshape(X.shape)
 
     # Create a 3D plot
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+
     # Plot the surface
-    surf = ax.plot_surface(points[:, 0], points[:, 0], vf, cmap=cmap)
-    # Set labels
+    surf = ax.plot_surface(X, -Y, Z, cmap='turbo_r', edgecolor='w')
+    ax.set_xticks(np.linspace(np.min(points[:, 0]), np.max(points[:, 0]), num=3))
+    ax.set_yticks(np.linspace(np.min(points[:, 1]), np.max(points[:, 1]), num=4))
+
+    # Label the axes
     ax.set_xlabel('Position')
     ax.set_ylabel('Velocity')
-    ax.set_xticks(np.linspace(np.min(points[:, 0]), np.max(points[:, 0]), num=5))
-    ax.set_yticks(np.linspace(np.min(points[:, 1]), np.max(points[:, 1]), num=4))
-    # Add a color bar which maps values to colors
-    fig.colorbar(surf, shrink=0.5, aspect=35, label='Normalize value function')
+    ax.set_zlabel('Value Function')
 
-    if number is not None:
-        fig.text(0.01, 0.99, "Iteration "+str(number), transform=plt.gca().transAxes,
-             fontsize=12, verticalalignment='top', horizontalalignment='left')
-
-    # save the plot
     plt.savefig(path)
     # Show the plot
     if show: plt.show()
     plt.close()
+
     
 def get_optimal_action(state:np.array, optimal_policy:np.array):
     """

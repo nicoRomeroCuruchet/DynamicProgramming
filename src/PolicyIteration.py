@@ -135,6 +135,7 @@ class PolicyIteration(object):
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         logger.info(f"The action space is: {self.action_space}")
         logger.info(f"Number of states: {len(self.states_space)}")
+        logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
 
     def __check_state__(self, obs:np.array)->bool:
         """
@@ -337,11 +338,11 @@ class PolicyIteration(object):
                 errs = np.array(errors)
                 indices = np.where(errs < self.theta)
                 logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
-                #plot_3D_value_function(self.value_function,
-                #                       self.grid,
-                #                       show=False,
-                #                       number=int(self.counter*ii),
-                #                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
+                plot_3D_value_function(self.value_function,
+                                       self.states_space,
+                                       show=False,
+                                       number=int(self.counter*ii),
+                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
                 #plot_2D_value_function(self.value_function,
                 #                       show=False,
                 #                       number=int(self.counter*ii), 
