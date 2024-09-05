@@ -145,7 +145,7 @@ def get_optimal_action(state:np.array, optimal_policy:np.array):
     Returns:
     action: The optimal action for the given state.
     """    
-    lambdas, simmplex_info  = optimal_policy.barycentric_coordinates(state)
+    lambdas, simmplex_info  = optimal_policy.barycentric_coordinates_for_testing(state)
     simplex, points_indexes = simmplex_info
     actions = optimal_policy.action_space
     probabilities = np.zeros(len(actions), dtype=np.float32)
