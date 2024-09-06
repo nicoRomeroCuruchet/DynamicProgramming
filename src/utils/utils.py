@@ -157,10 +157,10 @@ def get_optimal_action(state:np.array, optimal_policy:np.array):
     lambdas = np.array(lambdas).reshape(-1, 1)
     for i, l in enumerate(lambdas):
         for j, action in enumerate(actions):
-            probabilities[j] += l * optimal_policy.policy[points_indexes[i]][j]
+            probabilities[j] += l * float(optimal_policy.policy[points_indexes[i]][j])
     
     if abs(np.sum(probabilities)-1) > 1e-2:
-        raise ValueError("The probabilities do not sum to 1")
+        raise ValueError(f"The probabilities do not sum to 1, sum is {np.sum(probabilities)}")
     
     argmax = lambda x: max(enumerate(x), key=lambda x: x[1])[0]
     action = actions[argmax(probabilities)]
