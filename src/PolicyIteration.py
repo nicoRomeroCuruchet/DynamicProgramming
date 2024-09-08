@@ -10,10 +10,27 @@ from scipy.optimize import minimize
 from utils.utils import plot_2D_value_function,\
                          plot_3D_value_function
 
-
 import jax.numpy as jnp
 from jax import jit
 
+
+
+@jit
+def jax_get_value(lambdas: jnp.ndarray, point_indexes: jnp.ndarray, values: jnp.ndarray) -> jnp.ndarray:
+    """
+    Compute the next state value using Barycentric interpolation.
+
+    Args:
+        lambdas (jnp.ndarray): The lambdas array.
+        point_indexes (jnp.ndarray): The point indexes array.
+        values (jnp.ndarray): The values array.
+
+    Returns:
+        jnp.ndarray: The next state value array.
+    """
+    # Perform the computation using JAX arrays
+    next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T)  # Barycentric interpolation
+    return next_state_value
 
 class PolicyIteration(object):
     """
@@ -72,11 +89,11 @@ class PolicyIteration(object):
             ValueError: If action_space or bins_space is not provided or empty.
             TypeError: If action_space or bins_space is not of the correct type.
         """
-        self.env:gym.Env = env    # working environment
-        self.gamma:float = gamma  # discount factor
-        self.theta:float = theta  # convergence threshold for policy evaluation
-        self.nsteps:int = nsteps  # number of steps to run the policy iteration
-        self.counter:int = 0      # counter for the number of steps
+        self.env:gym.Env = env       # working environment
+        self.gamma:float = gamma     # discount factor
+        self.theta:float = theta     # convergence threshold for policy evaluation
+        self.nsteps:int = nsteps     # number of steps to run the policy iteration
+        self.counter:int = 0         # counter for the number of steps
 
         # if action space is not provided, raise an error
         if action_space is None: 
@@ -119,6 +136,7 @@ class PolicyIteration(object):
 
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
+        self.action_space_size:int  = int(self.action_space.shape[0])   
         self.num_states:int         = int(self.states_space.shape[0])
         self.num_actions:int        = int(self.action_space.shape[0])
 
@@ -141,7 +159,7 @@ class PolicyIteration(object):
         logger.info(f"Number of states: {len(self.states_space)}")
         logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
 
-    def __check_state__(self, obs:np.array)->bool:
+    def __check_state__(self, obs:jnp.ndarray)->bool:
         """
         Checks if the given state is within the bounds of the environment.
 
@@ -153,7 +171,7 @@ class PolicyIteration(object):
         """ 
         return jnp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
-    def barycentric_coordinates(self, points:jnp.array)->tuple:
+    def barycentric_coordinates(self, points:jnp.ndarray)->tuple:
 
         """
         Calculates the barycentric coordinates of a 2D point within a convex hull.
@@ -259,7 +277,7 @@ class PolicyIteration(object):
         assert lambdas.shape == (1,self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
         return lambdas, (simplex, points_indexes)
 
-    def step(self, state:np.array, action:float)->tuple:
+    def step(self, state:jnp.ndarray, action:float)->tuple:
 
         min_action = -1.0
         max_action = 1.0
@@ -323,41 +341,36 @@ class PolicyIteration(object):
             self.transition_reward_table['lambdas'][:, j] = lambdas
             self.transition_reward_table['simplexes'][:, j] = simplexes
             self.transition_reward_table['points_indexes'][:, j] = points_indexes              
-
-    def get_value(self, 
-                  lambdas:jnp.array, 
-                  point_indexes:jnp.array, 
-                  value_function)->float:
+    
+    def get_value(self, lambdas:jnp.ndarray, point_indexes:jnp.ndarray, value_function)->jnp.ndarray:
         """
-        Calculates the VF interpolation for a state given the barycentric coordinates and simplex.
-        Doing this interpolation is thus mathematically equivalent to probabilistically jumping to
-        a vertex: we approximate a deterministic continuous process by a stochastic discrete one
-
-        Parameters:
-            lambdas (np.array): Barycentric coordinates within the simplex.
-            simplex (list): List of points defining the simplex.
-            value_function (dict): The current value function.
-
+        Calculates the next state value based on the given lambdas, point indexes, and value function.
+        Args:
+            lambdas (jnp.ndarray): The lambdas array of shape (num_states, num_simplex_points).
+            point_indexes (jnp.ndarray): The point indexes array of shape (num_states, num_simplex_points).
+            value_function: The value function.
         Returns:
-            float: The calculated value of the state.
+            jnp.ndarray: The next state value.
         Raises:
-            Exception: If a state in the simplex is not found in the value function.
+            Exception: If states in point_indexes are not found in the value function.
         """
+
         lambdas = lambdas.squeeze().T
-        assert lambdas.shape == (self.states_space.shape[0],self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
-        assert point_indexes.shape ==  (self.states_space.shape[0],self.num_simplex_points),  f"point_indexes shape: {point_indexes.shape}"
+        assert lambdas.shape == (self.num_states, self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
+        assert point_indexes.shape ==  (self.num_states, self.num_simplex_points),  f"point_indexes shape: {point_indexes.shape}"
         
         try:
             values = value_function[point_indexes]
             # print(np.dot(lambdas[1,:],values[1,:]))
-            next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T) # dot product of lambdas and values
+            #next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T) # dot product of lambdas and values
+            next_state_value = jax_get_value(lambdas, point_indexes, values)
         except (
             KeyError
         ):
             next_state_value = 0
             logger.error(f"States in {point_indexes} not found in the value function.")
             raise Exception(f"States in {point_indexes} not found in the value function.")
-
+        
         return next_state_value
 
     def policy_evaluation(self):
@@ -387,23 +400,25 @@ class PolicyIteration(object):
             self.value_function = new_value_function # update the value function
             
             # log the progress
-            if ii % 150 == 0:    
-                mean = jnp.round(np.mean(errors), 4)
-                max_error = jnp.round(np.max(errors),4)
-                errs = jnp.array(errors)
-                indices = jnp.where(errs < self.theta)
-                logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
-                plot_3D_value_function(self.value_function,
-                                       self.states_space,
-                                       show=False,
-                                       number=int(self.counter*ii),
-                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
+            if ii % 250 == 0:
+                mean = jnp.round(np.mean(errors), 8)
+                max_error = jnp.round(np.max(errors),8)    
+                errs = np.array(errors)
+                indices = np.where(errs < self.theta)
+                
+                logger.info(f"Max Error: {np.max(errors)}\
+                            | Avg Error: {np.mean(errors)}\
+                            | {errs[indices].shape[0]}<{self.theta}")
+                
+                #plot_3D_value_function(self.value_function,
+                #                       self.states_space,
+                #                       show=False,
+                #                       number=int(self.counter*ii),
+                #                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
                 #plot_2D_value_function(self.value_function,
                 #                       show=False,
                 #                       number=int(self.counter*ii), 
                 #                       path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter*ii}.png")
-                
-            
             ii += 1
 
         logger.info("Policy evaluation finished.")
@@ -425,9 +440,11 @@ class PolicyIteration(object):
             lambdas = self.transition_reward_table["lambdas"][:, j]
             points_indexes = self.transition_reward_table["points_indexes"][:, j]
             # element-wise multiplication of the policy and the result
-            action_values = action_values.at[:,j].set(reward + self.gamma * self.get_value(lambdas.T, points_indexes, self.value_function))
+            action_values_j = reward + self.gamma * self.get_value(lambdas.T, points_indexes, self.value_function)
+            action_values = action_values.at[:,j].set(action_values_j)
         # update the policy to select the action with the highest value
-        new_policy = new_policy.at[jnp.arange(new_policy.shape[0]), jnp.argmax(action_values, axis=1)].set(1)
+        greedy_actions = jnp.argmax(action_values, axis=1)
+        new_policy = new_policy.at[jnp.arange(new_policy.shape[0]), greedy_actions].set(1)
 
         if not jnp.array_equal(self.policy, new_policy):
             logger.info(f"The number of updated different actions: {sum(self.policy != new_policy)}")
@@ -438,9 +455,9 @@ class PolicyIteration(object):
         return policy_stable
         
     def run(self):
-        """
-        Executes the Policy Iteration algorithm for a specified number of steps or until convergence..
-        """
+
+        """ Executes the Policy Iteration algorithm for a specified number of steps or until convergence. """
+
         logger.info("Generating transition and reward function table...")
         self.calculate_transition_reward_table()
         logger.info("Transition and reward function table generated.")

@@ -80,7 +80,7 @@ u = states[:, 0] - obs_max[:, 0]
 v = states[:, 1] - obs_max[:, 1]
 w = np.zeros_like(u)
 
-ax.quiver(
+"""ax.quiver(
     -X.flatten(),
     Y.flatten(),
     Z.flatten(),
@@ -90,6 +90,6 @@ ax.quiver(
     color="r",
     length=0.1,  # Why scale?
     normalize=False,
-)
+)"""
 # Show the plot
 plt.show()
