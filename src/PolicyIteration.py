@@ -28,7 +28,6 @@ def jax_get_value(lambdas: jnp.ndarray, point_indexes: jnp.ndarray, values: jnp.
     Returns:
         jnp.ndarray: The next state value array.
     """
-    # Perform the computation using JAX arrays
     next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T)  # Barycentric interpolation
     return next_state_value
 
@@ -381,11 +380,10 @@ class PolicyIteration(object):
         ii = 0 
         self.counter += 1
         logger.info("Starting policy evaluation")
-        while abs(max_error) > self.theta:
+        while jnp.abs(float(max_error)) > self.theta:
             # initialize the new value function to zeros
-            new_value_function = jnp.zeros_like(self.value_function) 
-            errors = []
-            new_val = 0
+            new_value_function = jnp.zeros_like(self.value_function, dtype=jnp.float32) 
+            new_val = jnp.zeros_like(self.value_function, dtype=jnp.float32)
             for j, action in enumerate(self.action_space):                
                 reward = self.transition_reward_table["reward"][:, j]
                 lambdas = self.transition_reward_table["lambdas"][:, j]
@@ -395,20 +393,18 @@ class PolicyIteration(object):
                 new_val += self.policy[:,j] * (reward + self.gamma * next_state_value)
             new_value_function = new_value_function.at[:].set(new_val)
             # update the error: the maximum difference between the new and old value functions
-            errors.append(abs(new_value_function[:] - self.value_function[:]))
+            errors= abs(new_value_function[:] - self.value_function[:])
 
             self.value_function = new_value_function # update the value function
             
             # log the progress
             if ii % 250 == 0:
-                mean = jnp.round(np.mean(errors), 8)
-                max_error = jnp.round(np.max(errors),8)    
-                errs = np.array(errors)
-                indices = np.where(errs < self.theta)
+                mean = jnp.round(jnp.mean(errors), 5)
+                max_error = jnp.round(jnp.max(errors),5)    
+                errs = jnp.array(errors)
+                indices = jnp.where(errs<self.theta)
                 
-                logger.info(f"Max Error: {np.max(errors)}\
-                            | Avg Error: {np.mean(errors)}\
-                            | {errs[indices].shape[0]}<{self.theta}")
+                logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errs[indices].shape[0]}<{self.theta}")
                 
                 #plot_3D_value_function(self.value_function,
                 #                       self.states_space,
@@ -436,8 +432,8 @@ class PolicyIteration(object):
         #for i, state in enumerate(self.states_space):
         action_values = jnp.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=jnp.float32)
         for j, action in enumerate(self.action_space):
-            reward = self.transition_reward_table["reward"][:, j]
-            lambdas = self.transition_reward_table["lambdas"][:, j]
+            reward         = self.transition_reward_table["reward"][:, j]
+            lambdas        = self.transition_reward_table["lambdas"][:, j]
             points_indexes = self.transition_reward_table["points_indexes"][:, j]
             # element-wise multiplication of the policy and the result
             action_values_j = reward + self.gamma * self.get_value(lambdas.T, points_indexes, self.value_function)
