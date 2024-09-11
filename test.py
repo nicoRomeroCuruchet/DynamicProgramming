@@ -10,12 +10,12 @@ from utils.utils import plot_2D_value_function, plot_3D_value_function, test_env
 from classic_control.cartpole import CartPoleEnv
 from classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 
-
+# 00:43<05:47
 env=Continuous_MountainCarEnv()
 
 bins_space = {
-    "x_space":     np.linspace(env.min_position, env.max_position, 250,      dtype=np.float32),    # position space    (0)
-    "x_dot_space": np.linspace(-abs(env.max_speed), abs(env.max_speed), 250, dtype=np.float32),    # velocity space    (1)
+    "x_space":     np.linspace(env.min_position, env.max_position, 100,      dtype=np.float32),    # position space    (0)
+    "x_dot_space": np.linspace(-abs(env.max_speed), abs(env.max_speed), 100, dtype=np.float32),    # velocity space    (1)
 }
 
 pi = PolicyIteration(

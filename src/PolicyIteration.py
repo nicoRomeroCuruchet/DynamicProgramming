@@ -11,9 +11,12 @@ from utils.utils import plot_2D_value_function,\
                          plot_3D_value_function
 
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, vmap
 
 
+@jit
+def elementwise_dot(a, b):
+    return jnp.dot(a.T, b).squeeze()  # Squeeze to remove extra dimensions
 
 @jit
 def jax_get_value(lambdas: jnp.ndarray, point_indexes: jnp.ndarray, values: jnp.ndarray) -> jnp.ndarray:
@@ -29,6 +32,14 @@ def jax_get_value(lambdas: jnp.ndarray, point_indexes: jnp.ndarray, values: jnp.
         jnp.ndarray: The next state value array.
     """
     next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T)  # Barycentric interpolation
+    #lambdas = lambdas.reshape(10000, 3,1)
+    #values = values.reshape(10000, 3, 1)
+    #next_state_value =  vmap(elementwise_dot)(lambdas, values)
+    # check if the two methods are equal
+    #assert jnp.all(jnp.allclose(next_state_value, next_state_value_other),  axis=1), f"next_state_value: {next_state_value} and next_state_value_other: {next_state_value_other}"
+    #print(jnp.array_equal(next_state_value, next_state_value_other))
+
+
     return next_state_value
 
 class PolicyIteration(object):
