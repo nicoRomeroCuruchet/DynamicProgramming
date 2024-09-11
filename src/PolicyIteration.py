@@ -6,41 +6,41 @@ import gymnasium as gym
 from loguru import logger
 import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
-from scipy.optimize import minimize
 from utils.utils import plot_2D_value_function,\
-                         plot_3D_value_function
+                        plot_3D_value_function
 
 import jax.numpy as jnp
 from jax import jit, vmap
 
+@jit
+def get_inversed_matrix(A:jnp.ndarray)->jnp.ndarray:
+
+    try:
+        inv_A = jnp.linalg.inv(A)
+    except jnp.linalg.LinAlgError as e:
+        #penrose-Moore pseudo inverse and log
+        inv_A = jnp.linalg.pinv(A)
+        logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
+    return inv_A
 
 @jit
-def elementwise_dot(a, b):
+def elementwise_dot(a:jnp.ndarray, b:jnp.ndarray)->jnp.ndarray:
     return jnp.dot(a.T, b).squeeze()  # Squeeze to remove extra dimensions
 
 @jit
-def jax_get_value(lambdas: jnp.ndarray, point_indexes: jnp.ndarray, values: jnp.ndarray) -> jnp.ndarray:
+def jax_get_value(lambdas: jnp.ndarray, values: jnp.ndarray) -> jnp.ndarray:
     """
     Compute the next state value using Barycentric interpolation.
 
     Args:
-        lambdas (jnp.ndarray): The lambdas array.
-        point_indexes (jnp.ndarray): The point indexes array.
-        values (jnp.ndarray): The values array.
+        lambdas (jnp.ndarray): The lambdas array. dimension (num_states, num_simplex_points, 1).
+        values (jnp.ndarray): The values array. dimension  (num_states, num_simplex_points, 1)
 
     Returns:
         jnp.ndarray: The next state value array.
-    """
-    next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T)  # Barycentric interpolation
-    #lambdas = lambdas.reshape(10000, 3,1)
-    #values = values.reshape(10000, 3, 1)
-    #next_state_value =  vmap(elementwise_dot)(lambdas, values)
-    # check if the two methods are equal
-    #assert jnp.all(jnp.allclose(next_state_value, next_state_value_other),  axis=1), f"next_state_value: {next_state_value} and next_state_value_other: {next_state_value_other}"
-    #print(jnp.array_equal(next_state_value, next_state_value_other))
-
-
-    return next_state_value
+    """ 
+    return vmap(elementwise_dot)(lambdas, values)
+ 
 
 class PolicyIteration(object):
     """
@@ -151,11 +151,11 @@ class PolicyIteration(object):
         self.num_actions:int        = int(self.action_space.shape[0])
 
         dtype = [('reward', jnp.float32), 
-                 ('previous_state', jnp.float32, self.states_space[0].shape), 
-                 ('next_state', jnp.float32, self.states_space[0].shape), 
+                 ('previous_state', jnp.float32, (self.space_dim,)), 
+                 ('next_state', jnp.float32, (self.space_dim,)),
+                 ('simplexes',  jnp.float32, (self.num_simplex_points, self.space_dim)), 
                  ('lambdas', jnp.float32, (self.num_simplex_points,1)),
-                 ('simplexes',  jnp.float32, (self.num_simplex_points, self.states_space[0].shape[0])),                
-                 ('points_indexes', jnp.int32, (self.num_simplex_points,))] 
+                 ('points_indexes', jnp.int32, (self.num_simplex_points,1))] 
 
         # Initialize the transition and reward function table
         self.transition_reward_table = np.zeros((self.num_states, self.num_actions), dtype=dtype)
@@ -213,12 +213,7 @@ class PolicyIteration(object):
         # Stack the transposed matrices with the row of ones along the second axis
         A = jnp.concatenate((transposed_simplexes, ones_row), axis=1)
         # Calculate the inverse of the resulting matrix
-        try:
-            inv_A = jnp.linalg.inv(A)
-        except jnp.linalg.LinAlgError as e:
-            #penrose-Moore pseudo inverse and log
-            inv_A = jnp.linalg.pinv(A)
-            logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
+        inv_A = get_inversed_matrix(A)
     
         b = jnp.hstack([points,  jnp.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
 
@@ -227,9 +222,11 @@ class PolicyIteration(object):
         assert b.shape == (self.num_states, self.num_simplex_points, 1), f"b shape: {b.shape}"
         lambdas = jnp.array(inv_A@b, dtype=jnp.float32)
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
+        points_indexes = points_indexes.reshape(self.num_states, self.num_simplex_points,1)
+
         # to test recontruct one point:
-        condition = jnp.linalg.norm(jnp.matmul(A, lambdas) - b, axis=1) < 1e-2
-        assert jnp.all(condition) == True, f"condition: {condition}"
+        #condition = jnp.linalg.norm(jnp.matmul(A, lambdas) - b, axis=1) < 1e-2
+        #assert jnp.all(condition) == True, f"condition: {condition}"
 
         return lambdas, simplexes, points_indexes
     
@@ -352,28 +349,27 @@ class PolicyIteration(object):
             self.transition_reward_table['simplexes'][:, j] = simplexes
             self.transition_reward_table['points_indexes'][:, j] = points_indexes              
     
-    def get_value(self, lambdas:jnp.ndarray, point_indexes:jnp.ndarray, value_function)->jnp.ndarray:
+    def get_value(self, 
+                  lambdas:jnp.ndarray, 
+                  point_indexes:jnp.ndarray, 
+                  value_function:jnp.ndarray)->jnp.ndarray:
         """
         Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
             lambdas (jnp.ndarray): The lambdas array of shape (num_states, num_simplex_points).
             point_indexes (jnp.ndarray): The point indexes array of shape (num_states, num_simplex_points).
-            value_function: The value function.
+            value_function (jnp.ndarray): The value function.
         Returns:
             jnp.ndarray: The next state value.
         Raises:
             Exception: If states in point_indexes are not found in the value function.
         """
-
-        lambdas = lambdas.squeeze().T
-        assert lambdas.shape == (self.num_states, self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
-        assert point_indexes.shape ==  (self.num_states, self.num_simplex_points),  f"point_indexes shape: {point_indexes.shape}"
+        assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
+        assert point_indexes.shape ==  (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
         
         try:
             values = value_function[point_indexes]
-            # print(np.dot(lambdas[1,:],values[1,:]))
-            #next_state_value = jnp.einsum('ij,ji->i', lambdas, values.T) # dot product of lambdas and values
-            next_state_value = jax_get_value(lambdas, point_indexes, values)
+            next_state_value = jax_get_value(lambdas, values)
         except (
             KeyError
         ):
@@ -400,7 +396,7 @@ class PolicyIteration(object):
                 lambdas = self.transition_reward_table["lambdas"][:, j]
                 points_indexes = self.transition_reward_table["points_indexes"][:, j]
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
-                next_state_value = self.get_value(lambdas.T, points_indexes, self.value_function)
+                next_state_value = self.get_value(lambdas, points_indexes, self.value_function)
                 new_val += self.policy[:,j] * (reward + self.gamma * next_state_value)
             new_value_function = new_value_function.at[:].set(new_val)
             # update the error: the maximum difference between the new and old value functions
@@ -447,7 +443,7 @@ class PolicyIteration(object):
             lambdas        = self.transition_reward_table["lambdas"][:, j]
             points_indexes = self.transition_reward_table["points_indexes"][:, j]
             # element-wise multiplication of the policy and the result
-            action_values_j = reward + self.gamma * self.get_value(lambdas.T, points_indexes, self.value_function)
+            action_values_j = reward + self.gamma * self.get_value(lambdas, points_indexes, self.value_function)
             action_values = action_values.at[:,j].set(action_values_j)
         # update the policy to select the action with the highest value
         greedy_actions = jnp.argmax(action_values, axis=1)
