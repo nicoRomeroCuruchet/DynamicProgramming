@@ -230,60 +230,6 @@ class PolicyIteration(object):
 
         return lambdas, simplexes, points_indexes
     
-    def barycentric_coordinates_for_testing(self, point:np.array)->tuple:
-
-        """
-        Calculates the barycentric coordinates of a 2D point within a convex hull.
-        Parameters:
-        - point: np.array
-            The 2D point for which to calculate the barycentric coordinates.
-        Returns:
-        - result: np.array
-            The barycentric coordinates of the point.
-        - vertices_coordinates: np.array
-            The coordinates of the vertices of the simplex containing the point.
-        Raises:
-        - ValueError: If the point is outside the convex hull.
-        """
-
-        assert point.shape == (self.states_space[0].shape[0],), f"point shape: {point.shape}"
-
-        simplex_index = self.triangulation.find_simplex(point)
-        if simplex_index != -1:  # -1 indicates that the point is outside the convex hull
-            points_indexes = self.triangulation.simplices[simplex_index]
-        else:
-            # raise an error
-            raise ValueError(f"The point {point} is outside the convex hull.")
-        
-        simplex = self.states_space[points_indexes]
-        simplex = np.array(simplex, dtype=np.float32).reshape(self.num_simplex_points, 
-                                                              self.states_space[0].shape[0])
-
-        A = np.vstack([simplex.T, np.ones(len(simplex))])
-        b = np.hstack([point, [1]]).reshape(self.states_space[0].shape[0]+1,)       
-        try:
-            inv_A = np.linalg.inv(A)
-
-        except np.linalg.LinAlgError as e:
-            #penrose-Moore pseudo inverse and log
-            inv_A = np.linalg.pinv(A)
-            logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
-            #log the simplex
-            logger.warning(f"Simplex: {simplex} and the point is {point}")
-
-        # check the correct shapes for the matrices multiplication
-        assert inv_A.shape == (self.num_simplex_points, self.num_simplex_points), f"inv_A shape: {inv_A.shape}"
-        assert b.shape == (self.num_simplex_points,), f"b shape: {b.shape}"
-        # get barycentric coordinates: lambdas = A^-1 * b
-        lambdas = np.array(inv_A@b.T,dtype=np.float32).reshape(1,self.num_simplex_points)
-        # Check if the point is inside the simplex
-        if np.any(lambdas < -1.0e-2) and abs(np.sum(lambdas) - 1.0) > 1.0e-2:
-            logger.error(f"The point {point} is outside the convex hull.")
-            raise ValueError(f"The point {point} is outside the convex hull.")
-        
-        assert lambdas.shape == (1,self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
-        return lambdas, (simplex, points_indexes)
-
     def step(self, state:jnp.ndarray, action:float)->tuple:
 
         min_action = -1.0

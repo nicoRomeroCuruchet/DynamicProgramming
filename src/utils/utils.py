@@ -1,10 +1,6 @@
-import pickle
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
-#from PolicyIteration import PolicyIteration
-
-
 
 def plot_2D_value_function(data: dict, 
                            normalize: bool = True, 
@@ -133,6 +129,35 @@ def plot_3D_value_function(vf: np.array,
     if show: plt.show()
     plt.close()
 
+
+def get_barycentric_coordinates(op:np.array, point:np.array)->tuple:
+
+    simplex_index = op.triangulation.find_simplex(point)
+    if simplex_index != -1:  # -1 indicates that the point is outside the convex hull
+        points_indexes = op.triangulation.simplices[simplex_index]
+    else:
+        # raise an error
+        raise ValueError(f"The point {point} is outside the convex hull.")
+    
+    simplex = op.states_space[points_indexes]
+    simplex = np.array(simplex, dtype=np.float32).reshape(op.num_simplex_points, op.space_dim)
+
+    A = np.vstack([simplex.T, np.ones(len(simplex))])
+    b = np.hstack([point, [1]]).reshape(op.space_dim+1,)       
+    try:
+        inv_A = np.linalg.inv(A)
+    except np.linalg.LinAlgError as e:
+        #penrose-Moore pseudo inverse and log
+        inv_A = np.linalg.pinv(A)
+        print(f"Error: {e}")
+    
+    # get barycentric coordinates: lambdas = A^-1 * b
+    lambdas = np.array(inv_A@b.T,dtype=np.float32).reshape(1,op.num_simplex_points)
+    # Check if the point is inside the simplex
+    if np.any(lambdas < -1.0e-2) and abs(np.sum(lambdas) - 1.0) > 1.0e-2:
+        raise ValueError(f"The point {point} is outside the convex hull.")
+    
+    return lambdas, (simplex, points_indexes)
     
 def get_optimal_action(state:np.array, optimal_policy:np.array):
     """
@@ -146,7 +171,7 @@ def get_optimal_action(state:np.array, optimal_policy:np.array):
     Returns:
     action: The optimal action for the given state.
     """    
-    lambdas, simmplex_info  = optimal_policy.barycentric_coordinates_for_testing(state)
+    lambdas, simmplex_info  = get_barycentric_coordinates(optimal_policy, state)
     simplex, points_indexes = simmplex_info
     actions = optimal_policy.action_space
     probabilities = np.zeros(len(actions), dtype=np.float32)
