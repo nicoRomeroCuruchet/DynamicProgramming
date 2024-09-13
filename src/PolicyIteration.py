@@ -256,7 +256,7 @@ class PolicyIteration(object):
         position = jnp.clip(position, min_position, max_position)
 
         velocity = jnp.where((position == min_position) & (velocity < 0), 0, velocity)
-        terminated = jnp.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
+        terminated = jnp.where((position >= goal_position) | (velocity >= goal_velocity), True, False)
 
         reward = jnp.zeros_like(terminated, dtype=jnp.float32)
         reward = jnp.where(terminated, 100.0, reward)
@@ -278,14 +278,19 @@ class PolicyIteration(object):
                 - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
         """
         for j, action in enumerate(self.action_space):
-            self.env.state = jnp.array(self.states_space, dtype=jnp.float32)          
-            obs, reward, _, _, _ = self.step(self.states_space, action)
+            state = jnp.array(self.states_space, dtype=jnp.float32)
+            self.env.airplane.flight_path_angle = state[:,0].copy()
+            self.env.airplane.airspeed_norm = state[:,1].copy()       
+            obs, reward, _, _ = self.env.step([action])
             # log if any state is outside the bounds of the environment
-            if not jnp.any(self.__check_state__(obs)):
-                logger.warning(f"State {obs} is outside the bounds of the environment.")
+            if jnp.any(self.__check_state__(obs)) == False:
+                logger.warning(f"Some states outside of the bounds of the environment.")
+
             # if any state is outside the bounds of the environment, set the reward to -100
-            reward = jnp.where(self.__check_state__(obs), reward, -100)
-                
+            #reward = jnp.where(self.__check_state__(obs), reward, -0.1)
+            # prevent obs not outside the bounds return the point to the bounds
+            obs = jnp.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
+            # calculate the barycentric coordinates of the resulting state
             lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
             # store the transition and reward information
             self.transition_reward_table['reward'][:, j] = reward

@@ -10,32 +10,18 @@ from utils.utils import plot_2D_value_function, plot_3D_value_function, test_env
 from classic_control.cartpole import CartPoleEnv
 from classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 
-# 00:43<05:47
-env=Continuous_MountainCarEnv()
-
-bins_space = {
-    "x_space":     np.linspace(env.min_position, env.max_position, 50,      dtype=np.float32),    # position space    (0)
-    "x_dot_space": np.linspace(-abs(env.max_speed), abs(env.max_speed), 50, dtype=np.float32),    # velocity space    (1)
-}
-
-pi = PolicyIteration(
-    env=env, 
-    bins_space=bins_space,
-    action_space=np.linspace(-1.0, +1.0,15, dtype=np.float32),
-    gamma=0.99,
-    theta=1e-3,
-)
-pi.run()
 
 
 
+import numpy as np
+from PolicyIteration import PolicyIteration
+from src.reduced_symmetric_glider_pullout import ReducedSymmetricGliderPullout
+
+
+env = ReducedSymmetricGliderPullout()
 
 
 
-
-
-
-env = Continuous_MountainCarEnv()
 
 
 with open(env.__class__.__name__ + ".pkl", "rb") as f:
@@ -72,14 +58,27 @@ fig = plt.figure()
 ax = fig.add_subplot(111, projection="3d")
 
 # Plot the surface
-surf = ax.plot_surface(-X, Y, Z, cmap="turbo_r", edgecolor="w")
+
+surf = ax.plot_surface(X, Y, Z, cmap="turbo_r", edgecolor="w")
 ax.set_xticks(np.linspace(np.min(points[:, 0]), np.max(points[:, 0]), num=3))
 ax.set_yticks(np.linspace(np.min(points[:, 1]), np.max(points[:, 1]), num=4))
 
+# Draw a plane at Y = 1
+y_value = 1
+x_plane = np.linspace(np.min(points[:, 0]), np.max(points[:, 0]), 100)
+z_plane = np.linspace(np.min(Z), np.max(Z), 100)
+X_plane, Z_plane = np.meshgrid(x_plane, z_plane)
+Y_plane = np.full_like(X_plane, y_value)
+
+# Plot the plane at Y = 1
+ax.plot_surface(X_plane, Y_plane, Z_plane, color="red", alpha=0.5)
+
 # Label the axes
-ax.set_xlabel("Position")
-ax.set_ylabel("Velocity")
+ax.set_xlabel("flight path angle (gamma)")
+ax.set_ylabel("airspeed norm (V/Vs)")
 ax.set_zlabel("Value Function")
+
+
 
 # doing a 3d quiver plot
 # x,y is the state (position, velocity)
