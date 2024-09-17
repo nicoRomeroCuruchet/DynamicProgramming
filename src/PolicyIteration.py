@@ -156,7 +156,6 @@ class PolicyIteration(object):
                  ('simplexes',  jnp.float32, (self.num_simplex_points, self.space_dim)), 
                  ('lambdas', jnp.float32, (self.num_simplex_points,1)),
                  ('points_indexes', jnp.int32, (self.num_simplex_points,1))] 
-
         # Initialize the transition and reward function table
         self.transition_reward_table = np.zeros((self.num_states, self.num_actions), dtype=dtype)
         # The policy is a mapping from states to probabilities of selecting each action
