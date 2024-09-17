@@ -284,8 +284,8 @@ class PolicyIteration(object):
         reward = jnp.zeros_like(terminated, dtype=jnp.float32)
         reward = jnp.where(terminated, -1, 0)
         states_outside = self.__in_cell__(state)
-        #reward = jnp.where(states_outside, reward, -100)
-        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
+        reward = jnp.where(states_outside, reward, -100)
+
         return np.array(state, dtype=np.float32), reward, terminated, False, {}
 
     def step_1(self, state:jnp.ndarray, action:float)->tuple:
@@ -306,18 +306,18 @@ class PolicyIteration(object):
         position = state[:,0]  # avoid modifying the original grid
         velocity = state[:,1]  # avoid modifying the original grid
 
-        force = min(max(action, min_action), max_action)
+        force     = min(max(action, min_action), max_action)
         velocity += force * power - 0.0025 * jnp.cos(3 * position)
-        velocity = jnp.clip(velocity, -max_speed, max_speed)
+        velocity  = jnp.clip(velocity, -max_speed, max_speed)
 
         position += velocity
-        position = jnp.clip(position, min_position, max_position)
+        position  = jnp.clip(position, min_position, max_position)
 
-        velocity = jnp.where((position == min_position) & (velocity < 0), 0, velocity)
+        velocity   = jnp.where((position == min_position) & (velocity < 0), 0, velocity)
         terminated = jnp.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
 
-        reward = jnp.zeros_like(terminated, dtype=jnp.float32)
-        reward = jnp.where(terminated, 100.0, reward)
+        reward  = jnp.zeros_like(terminated, dtype=jnp.float32)
+        reward  = jnp.where(terminated, 100.0, reward)
         reward -= jnp.pow(action, 2) * 0.1
 
         return jnp.vstack([position, velocity]).T, reward, terminated, False, {}

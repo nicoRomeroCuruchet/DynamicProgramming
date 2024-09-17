@@ -22,10 +22,10 @@ x_dot_lim     = 3.1
 theta_dot_lim = 3.1
 
 bins_space = {
-    "x_space"         : np.linspace(-x_lim, x_lim, 17,  dtype=np.float32),                     # position space         (0)
-    "x_dot_space"     : np.linspace(-x_dot_lim, x_dot_lim,17,  dtype=np.float32),              # velocity space         (1)
-    "theta_space"     : np.linspace(-theta_lim, theta_lim, 17, dtype=np.float32),              # angle space            (2)
-    "theta_dot_space" : np.linspace(-theta_dot_lim, theta_dot_lim, 17, dtype=np.float32),       # angular velocity space (3)
+    "x_space"         : np.linspace(-x_lim, x_lim, 7,  dtype=np.float32),                     # position space         (0)
+    "x_dot_space"     : np.linspace(-x_dot_lim, x_dot_lim,7,  dtype=np.float32),              # velocity space         (1)
+    "theta_space"     : np.linspace(-theta_lim, theta_lim, 7, dtype=np.float32),              # angle space            (2)
+    "theta_dot_space" : np.linspace(-theta_dot_lim, theta_dot_lim, 7, dtype=np.float32),       # angular velocity space (3)
 }
 
 pi = PolicyIteration(
@@ -37,6 +37,8 @@ pi = PolicyIteration(
 )
 
 pi.run()
+
+1/0
 
 # 00:43<05:47
 env=Continuous_MountainCarEnv()
