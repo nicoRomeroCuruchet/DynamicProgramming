@@ -1,7 +1,6 @@
 import os
 import pickle
 import numpy as np
-from tqdm import tqdm
 import gymnasium as gym
 from loguru import logger
 import matplotlib.pyplot as plt
@@ -133,22 +132,28 @@ class PolicyIteration(object):
         self.grid = jnp.meshgrid(*self.bins_space.values(), indexing='ij')
         # Flatten and stack to create a list of points in the space
         self.states_space = jnp.vstack([g.ravel() for g in self.grid], dtype=jnp.float32).T
-        # Create the Delaunay triangulation
-        logger.info("Creating Delaunay triangulation...")
-        self.triangulation = Delaunay(self.states_space)
-        logger.info("Delaunay triangulation created.")
-    
-        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
-        # plot the triangulation
-        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
-        #plt.scatter(-1.2,  0. , color='Red', s=10)
-        #plt.show()
-
+        # 
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
         self.action_space_size:int  = int(self.action_space.shape[0])   
         self.num_states:int         = int(self.states_space.shape[0])
         self.num_actions:int        = int(self.action_space.shape[0])
+
+        logger.info(f"The action space is: {self.action_space}")
+        logger.info(f"Number of states: {len(self.states_space)}")
+        logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
+        
+        # Create the Delaunay triangulation
+        logger.info("Creating Delaunay triangulation...")
+        self.triangulation = Delaunay(self.states_space)
+        logger.info("Delaunay triangulation created.")
+        
+        #to plot delaunay triangulation:    
+        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
+        # plot the triangulation
+        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
+        #plt.scatter(-1.2,  0. , color='Red', s=10)
+        #plt.show()
 
         dtype = [('reward', jnp.float32), 
                  ('previous_state', jnp.float32, (self.space_dim,)), 
@@ -165,20 +170,16 @@ class PolicyIteration(object):
         self.value_function = jnp.zeros(self.num_states, dtype=jnp.float32)
         logger.info("Policy Iteration was correctly initialized.")
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
-        logger.info(f"The action space is: {self.action_space}")
-        logger.info(f"Number of states: {len(self.states_space)}")
-        logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
+        
 
-    def __check_state__(self, obs:jnp.ndarray)->bool:
-        """
-        Checks if the given state is within the bounds of the environment.
+    def __in_cell__(self, obs: jnp.ndarray) -> jnp.ndarray:
+        """ Check if the given observation is within the valid state bounds.
 
         Parameters:
-            obs (np.array): The obs to check.
+        obs (jnp.ndarray): The observation to be checked.
 
         Returns:
-            bool: True if the obs is within the bounds, False otherwise.
-        """ 
+        jnp.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
         return jnp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
     def barycentric_coordinates(self, points:jnp.ndarray)->tuple:
@@ -230,13 +231,70 @@ class PolicyIteration(object):
 
         return lambdas, simplexes, points_indexes
     
-    def step(self, state:jnp.ndarray, action:float)->tuple:
+    def step(self, state, action):
 
-        min_action = -1.0
-        max_action = 1.0
-        min_position = -1.2
-        max_position = 0.6
-        max_speed = 0.07
+        self.gravity = 9.8
+        self.masscart = 1.0
+        self.masspole = 0.1
+        self.total_mass = self.masspole + self.masscart
+        self.length = 0.5  # actually half the pole's length
+        self.polemass_length = self.masspole * self.length
+        self.force_mag = 10.0
+        self.tau = 0.02  # seconds between state updates
+        self._sutton_barto_reward = True
+        self.kinematics_integrator = "euler"
+        self.steps_beyond_terminated = None
+        self.theta_threshold_radians = 12 * 2 * np.pi / 360
+        self.x_threshold = 2.4
+
+        x, x_dot, theta, theta_dot = state[:,0], state[:,1], state[:,2], state[:,3]
+        force = self.force_mag if action == 1 else -self.force_mag
+        costheta = np.cos(theta)
+        sintheta = np.sin(theta)
+        
+
+        # For the interested reader:
+        # https://coneural.org/florian/papers/05_cart_pole.pdf
+        temp = (
+            force + self.polemass_length * theta_dot**2 * sintheta
+        ) / self.total_mass
+        thetaacc = (self.gravity * sintheta - costheta * temp) / (
+            self.length * (4.0 / 3.0 - self.masspole * costheta**2 / self.total_mass)
+        )
+        xacc = temp - self.polemass_length * thetaacc * costheta / self.total_mass
+
+        if self.kinematics_integrator == "euler":
+            x = x + self.tau * x_dot
+            x_dot = x_dot + self.tau * xacc
+            theta = theta + self.tau * theta_dot
+            theta_dot = theta_dot + self.tau * thetaacc
+        else:  # semi-implicit euler
+            x_dot = x_dot + self.tau * xacc
+            x = x + self.tau * x_dot
+            theta_dot = theta_dot + self.tau * thetaacc
+            theta = theta + self.tau * theta_dot
+
+        state = jnp.vstack([x, x_dot, theta, theta_dot]).T
+ 
+        terminated = jnp.where((x < -self.x_threshold) | 
+                               (x >  self.x_threshold) | 
+                               (theta < -self.theta_threshold_radians) | 
+                               (theta > self.theta_threshold_radians), True, False)
+        
+        reward = jnp.zeros_like(terminated, dtype=jnp.float32)
+        reward = jnp.where(terminated, -1, 0)
+        states_outside = self.__in_cell__(state)
+        #reward = jnp.where(states_outside, reward, -100)
+        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
+        return np.array(state, dtype=np.float32), reward, terminated, False, {}
+
+    def step_1(self, state:jnp.ndarray, action:float)->tuple:
+
+        min_action    = -1.0
+        max_action    = 1.0
+        min_position  = -1.2
+        max_position  = 0.6
+        max_speed     = 0.07
         goal_position = (
             0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
         )
@@ -245,8 +303,8 @@ class PolicyIteration(object):
         )
         power = 0.0008 # 0.0015
 
-        position = state[:,0].copy()  # avoid modifying the original grid
-        velocity = state[:,1].copy()  # avoid modifying the original grid
+        position = state[:,0]  # avoid modifying the original grid
+        velocity = state[:,1]  # avoid modifying the original grid
 
         force = min(max(action, min_action), max_action)
         velocity += force * power - 0.0025 * jnp.cos(3 * position)
@@ -278,14 +336,18 @@ class PolicyIteration(object):
                 - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
         """
         for j, action in enumerate(self.action_space):
-            self.env.state = jnp.array(self.states_space, dtype=jnp.float32)          
-            obs, reward, _, _, _ = self.step(self.states_space, action)
+            states = jnp.array(self.states_space, dtype=jnp.float32).copy()          
+            obs, reward, _, _, _ = self.step(states, action)
             # log if any state is outside the bounds of the environment
-            if not jnp.any(self.__check_state__(obs)):
-                logger.warning(f"State {obs} is outside the bounds of the environment.")
-            # if any state is outside the bounds of the environment, set the reward to -100
-            reward = jnp.where(self.__check_state__(obs), reward, -100)
-                
+            states_outside = self.__in_cell__(obs)
+            if bool(jnp.any(~states_outside)):
+                # get the indexes of the states outside the bounds
+                #indexes = jnp.where(states_outside)
+                logger.warning(f"Some states are outside the bounds of the environment.")
+
+            # if any state is outside the bounds of the environment clip it to the bounds
+            obs = jnp.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
+            # get the barycentric coordinates of the resulting state
             lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
             # store the transition and reward information
             self.transition_reward_table['reward'][:, j] = reward
@@ -410,7 +472,7 @@ class PolicyIteration(object):
         logger.info("Generating transition and reward function table...")
         self.calculate_transition_reward_table()
         logger.info("Transition and reward function table generated.")
-        for n in tqdm(range(self.nsteps)):
+        for n in range(self.nsteps):
             logger.info(f"solving step {n}")
             self.policy_evaluation()
             if self.policy_improvement():
