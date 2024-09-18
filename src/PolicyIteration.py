@@ -231,7 +231,7 @@ class PolicyIteration(object):
 
         return lambdas, simplexes, points_indexes
     
-    def step(self, state, action):
+    def step_1(self, state, action):
 
         self.gravity = 9.8
         self.masscart = 1.0
@@ -288,7 +288,7 @@ class PolicyIteration(object):
 
         return np.array(state, dtype=np.float32), reward, terminated, False, {}
 
-    def step_1(self, state:jnp.ndarray, action:float)->tuple:
+    def step(self, state:jnp.ndarray, action:float)->tuple:
 
         min_action    = -1.0
         max_action    = 1.0
