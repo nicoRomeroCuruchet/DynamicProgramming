@@ -25,7 +25,8 @@ pi = PolicyIteration(
     gamma=0.99,
     theta=1e-3,
 )
-pi.run() 
+
+pi.run()
 
 1/0
 

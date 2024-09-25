@@ -1,5 +1,6 @@
 import os
 import pickle
+import cupy as cp
 import numpy as np
 import gymnasium as gym
 from loguru import logger
@@ -8,37 +9,6 @@ from scipy.spatial import Delaunay
 from utils.utils import plot_2D_value_function,\
                         plot_3D_value_function
 
-
-def get_inversed_matrix(A:np.ndarray)->np.ndarray:
-
-    try:
-        inv_A = np.linalg.inv(A)
-    except np.linalg.LinAlgError as e:
-        #penrose-Moore pseudo inverse and log
-        inv_A = np.linalg.pinv(A)
-        logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
-    return inv_A
-
-
-def elementwise_dot(a:np.ndarray, b:np.ndarray)->np.ndarray:
-    # Element-wise dot product of two arrays
-    print(f"a shape: {a.shape} and b shape: {b.shape}")
-    return np.dot(a.T, b).squeeze()  # Squeeze to remove extra dimensions
-
-
-def jax_get_value(lambdas: np.ndarray, values: np.ndarray) -> np.ndarray:
-    """
-    Compute the next state value using Barycentric interpolation.
-
-    Args:
-        lambdas (np.ndarray): The lambdas array. dimension (num_states, num_simplex_points, 1).
-        values (np.ndarray): The values array. dimension  (num_states, num_simplex_points, 1)
-
-    Returns:
-        np.ndarray: The next state value array.
-    """ 
-    return elementwise_dot(lambdas, values)
- 
 
 class PolicyIteration(object):
     """
@@ -154,19 +124,29 @@ class PolicyIteration(object):
         #plt.scatter(-1.2,  0. , color='Red', s=10)
         #plt.show()
 
+        self.reward         = cp.zeros((self.num_states, self.num_actions), dtype=cp.float32)
+        self.previous_state = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
+        self.next_state     = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
+        self.simplexes      = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, self.space_dim), dtype=cp.float32)
+        self.lambdas        = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.float32)
+        self.points_indexes = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.int32)
+
+
         dtype = [('reward', np.float32), 
                  ('previous_state', np.float32, (self.space_dim,)), 
                  ('next_state', np.float32, (self.space_dim,)),
                  ('simplexes',  np.float32, (self.num_simplex_points, self.space_dim)), 
                  ('lambdas', np.float32, (self.num_simplex_points,1)),
                  ('points_indexes', np.int32, (self.num_simplex_points,1))] 
+        
+
 
         # Initialize the transition and reward function table
         self.transition_reward_table = np.zeros((self.num_states, self.num_actions), dtype=dtype)
         # The policy is a mapping from states to probabilities of selecting each action
-        self.policy = np.ones((self.num_states, self.num_actions), dtype=np.float32) / self.num_actions
+        self.policy = cp.ones((self.num_states, self.num_actions), dtype=cp.float32) / self.num_actions
         # The value function is an estimate of the expected return from a given state
-        self.value_function = np.zeros(self.num_states, dtype=np.float32)
+        self.value_function = cp.zeros(self.num_states, dtype=cp.float32)
         logger.info("Policy Iteration was correctly initialized.")
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         
@@ -197,10 +177,10 @@ class PolicyIteration(object):
         - ValueError: If the point is outside the convex hull.
         """
         assert points.shape == self.states_space.shape, f"point shape: {points.shape} and states_space shape: {self.states_space.shape}"
-
+        # transform the points to a 3D space
         simplex_indexes = self.triangulation.find_simplex(points)
         # check if the point is outside the convex hull
-        if np.any(simplex_indexes == -1):  # -1 indicates that the point is outside the convex hull
+        if np.any(simplex_indexes == -1):
             raise ValueError(f"The point {np.where(simplex_indexes == -1)[0]} is outside the convex hull.")
         
         points_indexes = self.triangulation.simplices[simplex_indexes]
@@ -212,22 +192,27 @@ class PolicyIteration(object):
         ones_row = np.ones((transposed_simplexes.shape[0], 1, transposed_simplexes.shape[2]))
         # Stack the transposed matrices with the row of ones along the second axis
         A = np.concatenate((transposed_simplexes, ones_row), axis=1)
-        # Calculate the inverse of the resulting matrix
-        inv_A = get_inversed_matrix(A)
-    
         b = np.hstack([points,  np.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
-
-        assert inv_A.shape == (self.num_states, self.num_simplex_points, self.num_simplex_points), \
-                                                                        f"inv_A shape: {inv_A.shape}"
+        # Calculate the inverse of the resulting matrix
+        # transfer to gpu
+        A_gpu = cp.asarray(A, dtype=np.float32)
+        try:
+            inv_A_gpu = cp.linalg.inv(A_gpu)
+        except cp.linalg.LinAlgError as e:
+            raise ValueError(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
+    
+        assert inv_A_gpu.shape == (self.num_states, self.num_simplex_points, self.num_simplex_points), f"inv_A shape: {inv_A_gpu.shape}"
         assert b.shape == (self.num_states, self.num_simplex_points, 1), f"b shape: {b.shape}"
-        lambdas = np.array(inv_A@b, dtype=np.float32)
-        assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
+
+        b_gpu       = cp.asarray(b, dtype=cp.float32)
+        lambdas_gpu = cp.array(inv_A_gpu@b_gpu, dtype=cp.float32)
+
+        assert lambdas_gpu.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas_gpu.shape}"
         points_indexes = points_indexes.reshape(self.num_states, self.num_simplex_points,1)
-
         # to test recontruct one point:
-        #condition = np.linalg.norm(np.matmul(A, lambdas) - b, axis=1) < 1e-2
-        #assert np.all(condition) == True, f"condition: {condition}"
-
+        #condition = cp.linalg.norm(np.matmul(A_gpu, lambdas_gpu) - b_gpu, axis=1) < 1e-2
+        #assert cp.all(condition) == True, f"condition: {condition}"
+        lambdas = cp.asnumpy(lambdas_gpu)
         return lambdas, simplexes, points_indexes
     
     def step_1(self, state, action):
@@ -306,6 +291,11 @@ class PolicyIteration(object):
         position = state[:,0]  # avoid modifying the original grid
         velocity = state[:,1]  # avoid modifying the original grid
 
+        # transfer to gpu
+        position = cp.asarray(position)
+        velocity = cp.asarray(velocity)
+        action   = cp.asarray(action)
+
         force     = min(max(action, min_action), max_action)
         velocity += force * power - 0.0025 * np.cos(3 * position)
         velocity  = np.clip(velocity, -max_speed, max_speed)
@@ -319,6 +309,12 @@ class PolicyIteration(object):
         reward  = np.zeros_like(terminated, dtype=np.float32)
         reward  = np.where(terminated, 100.0, reward)
         reward -= np.pow(action, 2) * 0.1
+
+        # transfer to cpu
+        position   = cp.asnumpy(position)
+        velocity   = cp.asnumpy(velocity)
+        terminated = cp.asnumpy(terminated)
+        reward     = cp.asnumpy(reward)
 
         return np.vstack([position, velocity]).T, reward, terminated, False, {}
 
@@ -344,23 +340,30 @@ class PolicyIteration(object):
                 # get the indexes of the states outside the bounds
                 #indexes = np.where(states_outside)
                 logger.warning(f"Some states are outside the bounds of the environment.")
-
             # if any state is outside the bounds of the environment clip it to the bounds
             obs = np.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
             # get the barycentric coordinates of the resulting state
             lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
             # store the transition and reward information
-            self.transition_reward_table['reward'][:, j] = reward
+            self.transition_reward_table['reward'][:, j]         = reward
             self.transition_reward_table['previous_state'][:, j] = self.states_space
-            self.transition_reward_table['next_state'][:, j] = obs
-            self.transition_reward_table['lambdas'][:, j] = lambdas
-            self.transition_reward_table['simplexes'][:, j] = simplexes
-            self.transition_reward_table['points_indexes'][:, j] = points_indexes              
+            self.transition_reward_table['next_state'][:, j]     = obs
+            self.transition_reward_table['lambdas'][:, j]        = lambdas
+            self.transition_reward_table['simplexes'][:, j]      = simplexes
+            self.transition_reward_table['points_indexes'][:, j] = points_indexes
+            # transfer to gpu
+            self.reward[:,j]         = cp.asarray(reward)
+            self.previous_state[:,j] = cp.asarray(self.states_space)
+            self.next_state[:,j]     = cp.asarray(obs)
+            self.lambdas[:,j]        = cp.asarray(lambdas)
+            self.simplexes[:,j]      = cp.asarray(simplexes)
+            self.points_indexes[:,j] = cp.asarray(points_indexes) 
+
     
     def get_value(self, 
                   lambdas:np.ndarray, 
                   point_indexes:np.ndarray, 
-                  value_function:np.ndarray)->np.ndarray:
+                  value_function:np.ndarray)->cp.ndarray:
         """
         Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
@@ -372,20 +375,18 @@ class PolicyIteration(object):
         Raises:
             Exception: If states in point_indexes are not found in the value function.
         """
-        assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
+        assert lambdas.shape       == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         assert point_indexes.shape ==  (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
-        
+
         try:
-            values = value_function[point_indexes]
-            next_state_value = np.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
-            #next_state_value = jax_get_value(lambdas, values)
+            values = value_function[point_indexes.get()]
+            next_state_value = cp.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
         except (
             KeyError
         ):
             next_state_value = 0
-            logger.error(f"States in {point_indexes} not found in the value function.")
             raise Exception(f"States in {point_indexes} not found in the value function.")
-        
+
         return next_state_value
 
     def policy_evaluation(self):
@@ -396,41 +397,27 @@ class PolicyIteration(object):
         ii = 0 
         self.counter += 1
         logger.info("Starting policy evaluation")
-        while np.abs(float(max_error)) > self.theta:
+        while cp.abs(float(max_error)) > self.theta:
             # initialize the new value function to zeros
-            new_value_function = np.zeros_like(self.value_function, dtype=np.float32) 
-            new_val = np.zeros_like(self.value_function, dtype=np.float32)
-            for j, action in enumerate(self.action_space):                
-                reward = self.transition_reward_table["reward"][:, j]
-                lambdas = self.transition_reward_table["lambdas"][:, j]
-                points_indexes = self.transition_reward_table["points_indexes"][:, j]
+            new_value_function = cp.zeros_like(self.value_function, dtype=cp.float32) 
+            new_val = cp.zeros_like(self.value_function, dtype=cp.float32)
+            for j, _ in enumerate(self.action_space):                
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
-                next_state_value = self.get_value(lambdas, points_indexes, self.value_function)
-                new_val += self.policy[:,j] * (reward + self.gamma * next_state_value)
-            new_value_function = new_val#.at[:].set(new_val)
+                next_state_value = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
+                new_val += self.policy[:,j] * (self.reward[:,j] + self.gamma * next_state_value)
+            new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
-            errors = abs(new_value_function[:] - self.value_function[:])
-
-            self.value_function = new_value_function # update the value function
+            errors = cp.fabs(cp.subtract(new_value_function[:], self.value_function[:]))
+            self.value_function = new_value_function    # update the value function
             
             # log the progress
             if ii % 250 == 0:
-                mean = np.round(np.mean(errors), 5)
-                max_error = np.round(np.max(errors),5)    
-                errs = np.array(errors)
-                indices = np.where(errs<self.theta)
+                mean = cp.round(cp.mean(errors), 5)
+                max_error = cp.round(cp.max(errors),5)    
+                errs = cp.array(errors)
+                indices = cp.where(errs<self.theta)
                 
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errs[indices].shape[0]}<{self.theta}")
-                
-                #plot_3D_value_function(self.value_function,
-                #                       self.states_space,
-                #                       show=False,
-                #                       number=int(self.counter*ii),
-                #                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
-                #plot_2D_value_function(self.value_function,
-                #                       show=False,
-                #                       number=int(self.counter*ii), 
-                #                       path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter*ii}.png")
 
             ii += 1
 
@@ -445,22 +432,19 @@ class PolicyIteration(object):
         """
         logger.info("Starting policy improvement")
         policy_stable = True
-        new_policy = np.zeros_like(self.policy) # initialize the new policy to zeros
+        new_policy = cp.zeros_like(self.policy) # initialize the new policy to zeros
         #for i, state in enumerate(self.states_space):
-        action_values = np.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=np.float32)
-        for j, action in enumerate(self.action_space):
-            reward         = self.transition_reward_table["reward"][:, j]
-            lambdas        = self.transition_reward_table["lambdas"][:, j]
-            points_indexes = self.transition_reward_table["points_indexes"][:, j]
+        action_values = cp.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=cp.float32)
+        for j, _ in enumerate(self.action_space):
             # element-wise multiplication of the policy and the result
-            action_values_j = reward + self.gamma * self.get_value(lambdas, points_indexes, self.value_function)
-            action_values[:,j] = action_values_j #.at[:,j].set(action_values_j)
+            action_values_j = self.reward[:, j] + self.gamma * self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
+            action_values[:,j] = action_values_j 
         # update the policy to select the action with the highest value
-        greedy_actions = np.argmax(action_values, axis=1)
-        new_policy[np.arange(new_policy.shape[0]) ,greedy_actions] = 1 # new_policy.at[np.arange(new_policy.shape[0]), greedy_actions].set(1)
+        greedy_actions = cp.argmax(action_values, axis=1)
+        new_policy[cp.arange(new_policy.shape[0]) ,greedy_actions] = 1 
 
-        if not np.array_equal(self.policy, new_policy):
-            logger.info(f"The number of updated different actions: {sum(self.policy != new_policy)}")
+        if not cp.array_equal(self.policy, new_policy):
+            logger.info(f"The number of updated different actions: {cp.sum(self.policy != new_policy)}")
             policy_stable = False
 
         logger.info("Policy improvement finished.")
