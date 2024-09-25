@@ -297,18 +297,18 @@ class PolicyIteration(object):
         action   = cp.asarray(action)
 
         force     = min(max(action, min_action), max_action)
-        velocity += force * power - 0.0025 * np.cos(3 * position)
-        velocity  = np.clip(velocity, -max_speed, max_speed)
+        velocity += force * power - 0.0025 * cp.cos(3 * position)
+        velocity  = cp.clip(velocity, -max_speed, max_speed)
 
         position += velocity
-        position  = np.clip(position, min_position, max_position)
+        position  = cp.clip(position, min_position, max_position)
 
-        velocity   = np.where((position == min_position) & (velocity < 0), 0, velocity)
-        terminated = np.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
+        velocity   = cp.where((position == min_position) & (velocity < 0), 0, velocity)
+        terminated = cp.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
 
-        reward  = np.zeros_like(terminated, dtype=np.float32)
-        reward  = np.where(terminated, 100.0, reward)
-        reward -= np.pow(action, 2) * 0.1
+        reward  = cp.zeros_like(terminated, dtype=cp.float32)
+        reward  = cp.where(terminated, 100.0, reward)
+        reward -= cp.power(action, 2) * 0.1
 
         # transfer to cpu
         position   = cp.asnumpy(position)
@@ -393,7 +393,7 @@ class PolicyIteration(object):
         """
         Performs the policy evaluation step of the Policy Iteration, updating the value function.
         """
-        max_error = -1.0
+        max_error = 2*self.theta
         ii = 0 
         self.counter += 1
         logger.info("Starting policy evaluation")
@@ -412,10 +412,10 @@ class PolicyIteration(object):
             
             # log the progress
             if ii % 250 == 0:
-                mean = cp.round(cp.mean(errors), 5)
+                mean      = cp.round(cp.mean(errors), 5)
                 max_error = cp.round(cp.max(errors),5)    
-                errs = cp.array(errors)
-                indices = cp.where(errs<self.theta)
+                errs      = cp.array(errors)
+                indices   = cp.where(errs<self.theta)
                 
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errs[indices].shape[0]}<{self.theta}")
 
@@ -471,6 +471,7 @@ class PolicyIteration(object):
         """
         Saves the policy and value function to files.
         """
+
         with open(self.env.__class__.__name__ + ".pkl", "wb") as f:
             pickle.dump(self, f)
             logger.info("Policy and value function saved.")        
