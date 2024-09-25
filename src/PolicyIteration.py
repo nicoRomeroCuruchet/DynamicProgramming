@@ -8,37 +8,36 @@ from scipy.spatial import Delaunay
 from utils.utils import plot_2D_value_function,\
                         plot_3D_value_function
 
-import jax.numpy as jnp
-from jax import jit, vmap
 
-@jit
-def get_inversed_matrix(A:jnp.ndarray)->jnp.ndarray:
+def get_inversed_matrix(A:np.ndarray)->np.ndarray:
 
     try:
-        inv_A = jnp.linalg.inv(A)
-    except jnp.linalg.LinAlgError as e:
+        inv_A = np.linalg.inv(A)
+    except np.linalg.LinAlgError as e:
         #penrose-Moore pseudo inverse and log
-        inv_A = jnp.linalg.pinv(A)
+        inv_A = np.linalg.pinv(A)
         logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
     return inv_A
 
-@jit
-def elementwise_dot(a:jnp.ndarray, b:jnp.ndarray)->jnp.ndarray:
-    return jnp.dot(a.T, b).squeeze()  # Squeeze to remove extra dimensions
 
-@jit
-def jax_get_value(lambdas: jnp.ndarray, values: jnp.ndarray) -> jnp.ndarray:
+def elementwise_dot(a:np.ndarray, b:np.ndarray)->np.ndarray:
+    # Element-wise dot product of two arrays
+    print(f"a shape: {a.shape} and b shape: {b.shape}")
+    return np.dot(a.T, b).squeeze()  # Squeeze to remove extra dimensions
+
+
+def jax_get_value(lambdas: np.ndarray, values: np.ndarray) -> np.ndarray:
     """
     Compute the next state value using Barycentric interpolation.
 
     Args:
-        lambdas (jnp.ndarray): The lambdas array. dimension (num_states, num_simplex_points, 1).
-        values (jnp.ndarray): The values array. dimension  (num_states, num_simplex_points, 1)
+        lambdas (np.ndarray): The lambdas array. dimension (num_states, num_simplex_points, 1).
+        values (np.ndarray): The values array. dimension  (num_states, num_simplex_points, 1)
 
     Returns:
-        jnp.ndarray: The next state value array.
+        np.ndarray: The next state value array.
     """ 
-    return vmap(elementwise_dot)(lambdas, values)
+    return elementwise_dot(lambdas, values)
  
 
 class PolicyIteration(object):
@@ -124,14 +123,14 @@ class PolicyIteration(object):
         self.bins_space:dict   = bins_space
 
         #get the minimum and maximum values for each dimension       
-        self.cell_lower_bounds = jnp.array([min(v) for v in self.bins_space.values()], dtype=jnp.float32)
-        self.cell_upper_bounds = jnp.array([max(v) for v in self.bins_space.values()], dtype=jnp.float32)
+        self.cell_lower_bounds = np.array([min(v) for v in self.bins_space.values()], dtype=np.float32)
+        self.cell_upper_bounds = np.array([max(v) for v in self.bins_space.values()], dtype=np.float32)
         logger.info(f"Lower bounds: {self.cell_lower_bounds}")
         logger.info(f"Upper bounds: {self.cell_upper_bounds}")
         # Generate the grid points for all dimensions
-        self.grid = jnp.meshgrid(*self.bins_space.values(), indexing='ij')
+        self.grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
         # Flatten and stack to create a list of points in the space
-        self.states_space = jnp.vstack([g.ravel() for g in self.grid], dtype=jnp.float32).T
+        self.states_space = np.vstack([g.ravel() for g in self.grid], dtype=np.float32).T
         # 
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
@@ -155,34 +154,34 @@ class PolicyIteration(object):
         #plt.scatter(-1.2,  0. , color='Red', s=10)
         #plt.show()
 
-        dtype = [('reward', jnp.float32), 
-                 ('previous_state', jnp.float32, (self.space_dim,)), 
-                 ('next_state', jnp.float32, (self.space_dim,)),
-                 ('simplexes',  jnp.float32, (self.num_simplex_points, self.space_dim)), 
-                 ('lambdas', jnp.float32, (self.num_simplex_points,1)),
-                 ('points_indexes', jnp.int32, (self.num_simplex_points,1))] 
+        dtype = [('reward', np.float32), 
+                 ('previous_state', np.float32, (self.space_dim,)), 
+                 ('next_state', np.float32, (self.space_dim,)),
+                 ('simplexes',  np.float32, (self.num_simplex_points, self.space_dim)), 
+                 ('lambdas', np.float32, (self.num_simplex_points,1)),
+                 ('points_indexes', np.int32, (self.num_simplex_points,1))] 
 
         # Initialize the transition and reward function table
         self.transition_reward_table = np.zeros((self.num_states, self.num_actions), dtype=dtype)
         # The policy is a mapping from states to probabilities of selecting each action
-        self.policy = jnp.ones((self.num_states, self.num_actions), dtype=jnp.float32) / self.num_actions
+        self.policy = np.ones((self.num_states, self.num_actions), dtype=np.float32) / self.num_actions
         # The value function is an estimate of the expected return from a given state
-        self.value_function = jnp.zeros(self.num_states, dtype=jnp.float32)
+        self.value_function = np.zeros(self.num_states, dtype=np.float32)
         logger.info("Policy Iteration was correctly initialized.")
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         
 
-    def __in_cell__(self, obs: jnp.ndarray) -> jnp.ndarray:
+    def __in_cell__(self, obs: np.ndarray) -> np.ndarray:
         """ Check if the given observation is within the valid state bounds.
 
         Parameters:
-        obs (jnp.ndarray): The observation to be checked.
+        obs (np.ndarray): The observation to be checked.
 
         Returns:
-        jnp.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
-        return jnp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
+        np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
+        return np.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
-    def barycentric_coordinates(self, points:jnp.ndarray)->tuple:
+    def barycentric_coordinates(self, points:np.ndarray)->tuple:
 
         """
         Calculates the barycentric coordinates of a 2D point within a convex hull.
@@ -201,8 +200,8 @@ class PolicyIteration(object):
 
         simplex_indexes = self.triangulation.find_simplex(points)
         # check if the point is outside the convex hull
-        if jnp.any(simplex_indexes == -1):  # -1 indicates that the point is outside the convex hull
-            raise ValueError(f"The point {jnp.where(simplex_indexes == -1)[0]} is outside the convex hull.")
+        if np.any(simplex_indexes == -1):  # -1 indicates that the point is outside the convex hull
+            raise ValueError(f"The point {np.where(simplex_indexes == -1)[0]} is outside the convex hull.")
         
         points_indexes = self.triangulation.simplices[simplex_indexes]
         # get the simplexes
@@ -210,24 +209,24 @@ class PolicyIteration(object):
         # Transpose the matrices in one go
         transposed_simplexes = simplexes.transpose(0, 2, 1)
         # Create the row of ones to be added, matching the shape (number of matrices, 1 row, number of columns)
-        ones_row = jnp.ones((transposed_simplexes.shape[0], 1, transposed_simplexes.shape[2]))
+        ones_row = np.ones((transposed_simplexes.shape[0], 1, transposed_simplexes.shape[2]))
         # Stack the transposed matrices with the row of ones along the second axis
-        A = jnp.concatenate((transposed_simplexes, ones_row), axis=1)
+        A = np.concatenate((transposed_simplexes, ones_row), axis=1)
         # Calculate the inverse of the resulting matrix
         inv_A = get_inversed_matrix(A)
     
-        b = jnp.hstack([points,  jnp.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
+        b = np.hstack([points,  np.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
 
         assert inv_A.shape == (self.num_states, self.num_simplex_points, self.num_simplex_points), \
                                                                         f"inv_A shape: {inv_A.shape}"
         assert b.shape == (self.num_states, self.num_simplex_points, 1), f"b shape: {b.shape}"
-        lambdas = jnp.array(inv_A@b, dtype=jnp.float32)
+        lambdas = np.array(inv_A@b, dtype=np.float32)
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         points_indexes = points_indexes.reshape(self.num_states, self.num_simplex_points,1)
 
         # to test recontruct one point:
-        #condition = jnp.linalg.norm(jnp.matmul(A, lambdas) - b, axis=1) < 1e-2
-        #assert jnp.all(condition) == True, f"condition: {condition}"
+        #condition = np.linalg.norm(np.matmul(A, lambdas) - b, axis=1) < 1e-2
+        #assert np.all(condition) == True, f"condition: {condition}"
 
         return lambdas, simplexes, points_indexes
     
@@ -274,27 +273,28 @@ class PolicyIteration(object):
             theta_dot = theta_dot + self.tau * thetaacc
             theta = theta + self.tau * theta_dot
 
-        state = jnp.vstack([x, x_dot, theta, theta_dot]).T
+        state = np.vstack([x, x_dot, theta, theta_dot]).T
  
-        terminated = jnp.where((x < -self.x_threshold) | 
+        terminated = np.where((x < -self.x_threshold) | 
                                (x >  self.x_threshold) | 
                                (theta < -self.theta_threshold_radians) | 
                                (theta > self.theta_threshold_radians), True, False)
         
-        reward = jnp.zeros_like(terminated, dtype=jnp.float32)
-        reward = jnp.where(terminated, -1, 0)
+        reward = np.zeros_like(terminated, dtype=np.float32)
+        reward = np.where(terminated, -1, 0)
         states_outside = self.__in_cell__(state)
-        reward = jnp.where(states_outside, reward, -100)
+        reward = np.where(states_outside, reward, -100)
 
         return np.array(state, dtype=np.float32), reward, terminated, False, {}
 
-    def step(self, state:jnp.ndarray, action:float)->tuple:
+    def step(self, state:np.ndarray, action:float)->tuple:
 
         min_action    = -1.0
         max_action    = 1.0
         min_position  = -1.2
         max_position  = 0.6
         max_speed     = 0.07
+
         goal_position = (
             0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
         )
@@ -307,20 +307,20 @@ class PolicyIteration(object):
         velocity = state[:,1]  # avoid modifying the original grid
 
         force     = min(max(action, min_action), max_action)
-        velocity += force * power - 0.0025 * jnp.cos(3 * position)
-        velocity  = jnp.clip(velocity, -max_speed, max_speed)
+        velocity += force * power - 0.0025 * np.cos(3 * position)
+        velocity  = np.clip(velocity, -max_speed, max_speed)
 
         position += velocity
-        position  = jnp.clip(position, min_position, max_position)
+        position  = np.clip(position, min_position, max_position)
 
-        velocity   = jnp.where((position == min_position) & (velocity < 0), 0, velocity)
-        terminated = jnp.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
+        velocity   = np.where((position == min_position) & (velocity < 0), 0, velocity)
+        terminated = np.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
 
-        reward  = jnp.zeros_like(terminated, dtype=jnp.float32)
-        reward  = jnp.where(terminated, 100.0, reward)
-        reward -= jnp.pow(action, 2) * 0.1
+        reward  = np.zeros_like(terminated, dtype=np.float32)
+        reward  = np.where(terminated, 100.0, reward)
+        reward -= np.pow(action, 2) * 0.1
 
-        return jnp.vstack([position, velocity]).T, reward, terminated, False, {}
+        return np.vstack([position, velocity]).T, reward, terminated, False, {}
 
     def calculate_transition_reward_table(self):
         """
@@ -336,17 +336,17 @@ class PolicyIteration(object):
                 - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
         """
         for j, action in enumerate(self.action_space):
-            states = jnp.array(self.states_space, dtype=jnp.float32).copy()          
+            states = np.array(self.states_space, dtype=np.float32).copy()          
             obs, reward, _, _, _ = self.step(states, action)
             # log if any state is outside the bounds of the environment
             states_outside = self.__in_cell__(obs)
-            if bool(jnp.any(~states_outside)):
+            if bool(np.any(~states_outside)):
                 # get the indexes of the states outside the bounds
-                #indexes = jnp.where(states_outside)
+                #indexes = np.where(states_outside)
                 logger.warning(f"Some states are outside the bounds of the environment.")
 
             # if any state is outside the bounds of the environment clip it to the bounds
-            obs = jnp.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
+            obs = np.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
             # get the barycentric coordinates of the resulting state
             lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
             # store the transition and reward information
@@ -358,17 +358,17 @@ class PolicyIteration(object):
             self.transition_reward_table['points_indexes'][:, j] = points_indexes              
     
     def get_value(self, 
-                  lambdas:jnp.ndarray, 
-                  point_indexes:jnp.ndarray, 
-                  value_function:jnp.ndarray)->jnp.ndarray:
+                  lambdas:np.ndarray, 
+                  point_indexes:np.ndarray, 
+                  value_function:np.ndarray)->np.ndarray:
         """
         Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
-            lambdas (jnp.ndarray): The lambdas array of shape (num_states, num_simplex_points).
-            point_indexes (jnp.ndarray): The point indexes array of shape (num_states, num_simplex_points).
-            value_function (jnp.ndarray): The value function.
+            lambdas (np.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
+            point_indexes (np.ndarray): The point indexes array of shape (num_states, num_simplex_points,1).
+            value_function (np.ndarray): The value function.
         Returns:
-            jnp.ndarray: The next state value.
+            np.ndarray: The next state value.
         Raises:
             Exception: If states in point_indexes are not found in the value function.
         """
@@ -377,7 +377,8 @@ class PolicyIteration(object):
         
         try:
             values = value_function[point_indexes]
-            next_state_value = jax_get_value(lambdas, values)
+            next_state_value = np.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
+            #next_state_value = jax_get_value(lambdas, values)
         except (
             KeyError
         ):
@@ -395,10 +396,10 @@ class PolicyIteration(object):
         ii = 0 
         self.counter += 1
         logger.info("Starting policy evaluation")
-        while jnp.abs(float(max_error)) > self.theta:
+        while np.abs(float(max_error)) > self.theta:
             # initialize the new value function to zeros
-            new_value_function = jnp.zeros_like(self.value_function, dtype=jnp.float32) 
-            new_val = jnp.zeros_like(self.value_function, dtype=jnp.float32)
+            new_value_function = np.zeros_like(self.value_function, dtype=np.float32) 
+            new_val = np.zeros_like(self.value_function, dtype=np.float32)
             for j, action in enumerate(self.action_space):                
                 reward = self.transition_reward_table["reward"][:, j]
                 lambdas = self.transition_reward_table["lambdas"][:, j]
@@ -406,18 +407,18 @@ class PolicyIteration(object):
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
                 next_state_value = self.get_value(lambdas, points_indexes, self.value_function)
                 new_val += self.policy[:,j] * (reward + self.gamma * next_state_value)
-            new_value_function = new_value_function.at[:].set(new_val)
+            new_value_function = new_val#.at[:].set(new_val)
             # update the error: the maximum difference between the new and old value functions
-            errors= abs(new_value_function[:] - self.value_function[:])
+            errors = abs(new_value_function[:] - self.value_function[:])
 
             self.value_function = new_value_function # update the value function
             
             # log the progress
             if ii % 250 == 0:
-                mean = jnp.round(jnp.mean(errors), 5)
-                max_error = jnp.round(jnp.max(errors),5)    
-                errs = jnp.array(errors)
-                indices = jnp.where(errs<self.theta)
+                mean = np.round(np.mean(errors), 5)
+                max_error = np.round(np.max(errors),5)    
+                errs = np.array(errors)
+                indices = np.where(errs<self.theta)
                 
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errs[indices].shape[0]}<{self.theta}")
                 
@@ -430,6 +431,7 @@ class PolicyIteration(object):
                 #                       show=False,
                 #                       number=int(self.counter*ii), 
                 #                       path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter*ii}.png")
+
             ii += 1
 
         logger.info("Policy evaluation finished.")
@@ -443,21 +445,21 @@ class PolicyIteration(object):
         """
         logger.info("Starting policy improvement")
         policy_stable = True
-        new_policy = jnp.zeros_like(self.policy) # initialize the new policy to zeros
+        new_policy = np.zeros_like(self.policy) # initialize the new policy to zeros
         #for i, state in enumerate(self.states_space):
-        action_values = jnp.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=jnp.float32)
+        action_values = np.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=np.float32)
         for j, action in enumerate(self.action_space):
             reward         = self.transition_reward_table["reward"][:, j]
             lambdas        = self.transition_reward_table["lambdas"][:, j]
             points_indexes = self.transition_reward_table["points_indexes"][:, j]
             # element-wise multiplication of the policy and the result
             action_values_j = reward + self.gamma * self.get_value(lambdas, points_indexes, self.value_function)
-            action_values = action_values.at[:,j].set(action_values_j)
+            action_values[:,j] = action_values_j #.at[:,j].set(action_values_j)
         # update the policy to select the action with the highest value
-        greedy_actions = jnp.argmax(action_values, axis=1)
-        new_policy = new_policy.at[jnp.arange(new_policy.shape[0]), greedy_actions].set(1)
+        greedy_actions = np.argmax(action_values, axis=1)
+        new_policy[np.arange(new_policy.shape[0]) ,greedy_actions] = 1 # new_policy.at[np.arange(new_policy.shape[0]), greedy_actions].set(1)
 
-        if not jnp.array_equal(self.policy, new_policy):
+        if not np.array_equal(self.policy, new_policy):
             logger.info(f"The number of updated different actions: {sum(self.policy != new_policy)}")
             policy_stable = False
 
