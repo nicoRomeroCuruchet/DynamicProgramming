@@ -4,11 +4,8 @@ import cupy as cp
 import numpy as np
 import gymnasium as gym
 from loguru import logger
-import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
-from utils.utils import plot_2D_value_function,\
-                        plot_3D_value_function
-
+from utils.utils import plot_3D_value_function
 
 class PolicyIteration(object):
     """
@@ -52,9 +49,9 @@ class PolicyIteration(object):
                  nsteps:int=100,
                  gamma:float= 0.99,
                  theta:float= 5e-2):
-        """ 
-        Initializes the PolicyIteration object with the environment, state and action spaces, 
-        and algorithm parameters.
+        
+        """   Initializes the PolicyIteration object with the environment, state and action spaces, 
+              and algorithm parameters.
 
         Parameters:
             env (gym.Env): The Gym environment to perform policy iteration on.
@@ -65,8 +62,8 @@ class PolicyIteration(object):
         
         Raises:
             ValueError: If action_space or bins_space is not provided or empty.
-            TypeError: If action_space or bins_space is not of the correct type.
-        """
+            TypeError: If action_space or bins_space is not of the correct type. """
+        
         self.env:gym.Env = env       # working environment
         self.gamma:float = gamma     # discount factor
         self.theta:float = theta     # convergence threshold for policy evaluation
@@ -111,14 +108,7 @@ class PolicyIteration(object):
         logger.info(f"The action space is: {self.action_space}")
         logger.info(f"Number of states: {len(self.states_space)}")
         logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
-        
-        #to plot delaunay triangulation:    
-        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
-        # plot the triangulation
-        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
-        #plt.scatter(-1.2,  0. , color='Red', s=10)
-        #plt.show()
-
+    
         # Initialize the transition and reward function table
         self.reward         = cp.zeros((self.num_states, self.num_actions), dtype=cp.float32)
         self.previous_state = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
@@ -135,30 +125,29 @@ class PolicyIteration(object):
         
 
     def __in_cell__(self, obs: cp.ndarray) -> cp.ndarray:
+
         """ Check if the given observation is within the valid state bounds.
 
         Parameters:
-        obs (np.ndarray): The observation to be checked.
+            obs (np.ndarray): The observation array to check.
 
         Returns:
-        np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
+            np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
+        
         return cp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
     def barycentric_coordinates(self, points:np.ndarray)->tuple:
 
-        """
-        Calculates the barycentric coordinates of a 2D point within a convex hull.
+        """ Calculates the barycentric coordinates of a 2D point within a convex hull.
         Parameters:
-        - point: np.array
-            The 2D point for which to calculate the barycentric coordinates.
+            point (np.array): The 2D point for which to calculate the barycentric coordinates.
         Returns:
-        - result: np.array
-            The barycentric coordinates of the point.
-        - vertices_coordinates: np.array
-            The coordinates of the vertices of the simplex containing the point.
+            result (np.array): The barycentric coordinates of the point.
+            vertices_coordinates (np.array): The coordinates of the vertices of the simplex containing the point.
         Raises:
-        - ValueError: If the point is outside the convex hull.
-        """
+            ValueError: If the point is outside the convex hull. 
+            ValueError: If the matrix A is singular. """
+
         assert points.shape == self.states_space.shape, f"point shape: {points.shape} and states_space shape: {self.states_space.shape}"
         # transform the points to a 3D space
         simplex_indexes = self.triangulation.find_simplex(points)
@@ -199,18 +188,15 @@ class PolicyIteration(object):
         return lambdas, simplexes, points_indexes
   
     def calculate_transition_reward_table(self):
-        """
-        Computes the transition and reward table for each state-action pair.
-        
-        Returns:
-            dict: A dictionary containing the transition and reward information for each state-action pair.
-                The keys are tuples of the form (state, action), and the values are dictionaries with the following keys:
-                - "reward": The reward obtained when taking the specified action in the given state.
-                - "previous_state": The state from which the action was taken.
-                - "next_state": The resulting state after taking the specified action in the given state.
-                - "simplex": The simplex associated with the resulting state.
-                - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
-        """      
+
+        """ Computes the transition and reward table for each state-action pair.
+            "next_state": The resulting state after taking the specified action in the given state.
+            "reward": The reward obtained when taking the specified action in the given state.
+            "previous_state": The state from which the action was taken.
+            "lambdas": The barycentric coordinates of the resulting state with respect to the simplex.        
+            "simplexes": The simplex associated with the resulting state.
+            "points_indexes": The indexes of the points in the simplex. """   
+           
         for j, action in enumerate(self.action_space):
             self.env.state = cp.asarray(self.states_space, dtype=cp.float32)   
             obs_gpu, reward_gpu, _, _, _ = self.env.step(action)
@@ -226,43 +212,42 @@ class PolicyIteration(object):
             obs_cpu = cp.asnumpy(obs_gpu)
             lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs_cpu)
             # store the transition and reward information and transfer to gpu
-            self.reward[:,j]         = reward_gpu
             self.next_state[:,j]     = obs_gpu
+            self.reward[:,j]         = reward_gpu
             self.previous_state[:,j] = cp.asarray(self.states_space)
             self.lambdas[:,j]        = cp.asarray(lambdas)
             self.simplexes[:,j]      = cp.asarray(simplexes)
             self.points_indexes[:,j] = cp.asarray(points_indexes) 
 
     def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
-        """
-        Calculates the next state value based on the given lambdas, point indexes, and value function.
+
+        """ Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
             lambdas (cp.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
-            point_indexes (np.ndarray): The point indexes array of shape (num_states, num_simplex_points,1).
-            value_function (np.ndarray): The value function.
+            point_indexes (cp.ndarray): The point indexes array of shape (num_states, num_simplex_points,1).
+            value_function (cp.ndarray): The value function.
         Returns:
-            np.ndarray: The next state value.
+            cp.ndarray: The next state value.
         Raises:
-            Exception: If states in point_indexes are not found in the value function.
-        """
-        assert lambdas.shape       == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
-        assert point_indexes.shape ==  (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
-
+            Exception: If states in point_indexes are not found in the value function. """
+        
+        assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
+        assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
         try:
-            values = value_function[point_indexes.get()]
+            values = value_function[point_indexes]
             next_state_value = cp.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
         except (
             KeyError
         ):
-            next_state_value = 0
+            next_state_value = None
             raise Exception(f"States in {point_indexes} not found in the value function.")
 
         return next_state_value
 
     def policy_evaluation(self):
-        """
-        Performs the policy evaluation step of the Policy Iteration, updating the value function.
-        """
+
+        """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  """
+
         max_error = 2*self.theta
         ii = 0 
         self.counter += 1
@@ -278,30 +263,39 @@ class PolicyIteration(object):
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
             errors = cp.fabs(new_value_function[:] - self.value_function[:])
-            self.value_function = new_value_function    # update the value function
-            
+            self.value_function = new_value_function  # update the value function
             # log the progress
-            if ii % 100 == 0:
+            if ii % 150 == 0:
                 mean      = cp.round(cp.mean(errors), 3)
                 max_error = cp.round(cp.max(errors), 3)    
                 indices   = cp.where(errors<self.theta)
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
-
+                # get date for the name of the image
+                import time
+                timestamp = int(time.time())
+                img_name =  f"/3D_value_function_{timestamp}.png"
+                __path__ = PolicyIteration.metadata['img_path'] + img_name
+                # remove spaces in path
+                __path__ = __path__.replace(" ", "_")
+                plot_3D_value_function(self.value_function,
+                                        self.states_space,
+                                        show=False,
+                                        path=str(__path__))
+                
             ii += 1
 
         logger.info("Policy evaluation finished.")
 
     def policy_improvement(self)->bool:
-        """
-        Performs the policy improvement step, updating the policy based on the current value function.
+
+        """ Performs the policy improvement step, updating the policy based on the current value function.
 
         Returns:
-            bool: True if the policy is stable and no changes were made, False otherwise.
-        """
+            bool: True if the policy is stable and no changes were made, False otherwise. """
+        
         logger.info("Starting policy improvement")
         policy_stable = True
         new_policy = cp.zeros_like(self.policy) # initialize the new policy to zeros
-        #for i, state in enumerate(self.states_space):
         action_values = cp.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=cp.float32)
         for j, _ in enumerate(self.action_space):
             # element-wise multiplication of the policy and the result
@@ -327,6 +321,14 @@ class PolicyIteration(object):
         logger.info("Creating Delaunay triangulation over the state space...")
         self.triangulation = Delaunay(self.states_space)
         logger.info("Delaunay triangulation created.")
+        
+        #to plot delaunay triangulation:    
+        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
+        # plot the triangulation
+        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
+        #plt.scatter(-1.2,  0. , color='Red', s=10)
+        #plt.show()
+        
         # Generate the transition and reward function table
         logger.info("Generating transition and reward function table...")
         self.calculate_transition_reward_table()
@@ -341,9 +343,8 @@ class PolicyIteration(object):
         self.env.close()
 
     def save(self):
-        """
-        Saves the policy and value function to files.
-        """
+
+        """  Saves the policy and value function to files. """
 
         with open(self.env.__class__.__name__ + ".pkl", "wb") as f:
             pickle.dump(self, f)
