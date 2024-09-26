@@ -124,6 +124,7 @@ class PolicyIteration(object):
         #plt.scatter(-1.2,  0. , color='Red', s=10)
         #plt.show()
 
+        # Initialize the transition and reward function table
         self.reward         = cp.zeros((self.num_states, self.num_actions), dtype=cp.float32)
         self.previous_state = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
         self.next_state     = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
@@ -275,10 +276,10 @@ class PolicyIteration(object):
     def step(self, state:np.ndarray, action:float)->tuple:
 
         min_action    = -1.0
-        max_action    = 1.0
+        max_action    = +1.0
         min_position  = -1.2
-        max_position  = 0.6
-        max_speed     = 0.07
+        max_position  = +0.6
+        max_speed     = +0.07
 
         goal_position = (
             0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
@@ -344,14 +345,7 @@ class PolicyIteration(object):
             obs = np.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
             # get the barycentric coordinates of the resulting state
             lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
-            # store the transition and reward information
-            self.transition_reward_table['reward'][:, j]         = reward
-            self.transition_reward_table['previous_state'][:, j] = self.states_space
-            self.transition_reward_table['next_state'][:, j]     = obs
-            self.transition_reward_table['lambdas'][:, j]        = lambdas
-            self.transition_reward_table['simplexes'][:, j]      = simplexes
-            self.transition_reward_table['points_indexes'][:, j] = points_indexes
-            # transfer to gpu
+            # store the transition and reward information and transfer to gpu
             self.reward[:,j]         = cp.asarray(reward)
             self.previous_state[:,j] = cp.asarray(self.states_space)
             self.next_state[:,j]     = cp.asarray(obs)
@@ -360,10 +354,7 @@ class PolicyIteration(object):
             self.points_indexes[:,j] = cp.asarray(points_indexes) 
 
     
-    def get_value(self, 
-                  lambdas:np.ndarray, 
-                  point_indexes:np.ndarray, 
-                  value_function:np.ndarray)->cp.ndarray:
+    def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
         """
         Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
@@ -407,17 +398,15 @@ class PolicyIteration(object):
                 new_val += self.policy[:,j] * (self.reward[:,j] + self.gamma * next_state_value)
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
-            errors = cp.fabs(cp.subtract(new_value_function[:], self.value_function[:]))
+            errors = cp.fabs(new_value_function[:] - self.value_function[:])
             self.value_function = new_value_function    # update the value function
             
             # log the progress
-            if ii % 250 == 0:
-                mean      = cp.round(cp.mean(errors), 5)
-                max_error = cp.round(cp.max(errors),5)    
-                errs      = cp.array(errors)
-                indices   = cp.where(errs<self.theta)
-                
-                logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errs[indices].shape[0]}<{self.theta}")
+            if ii % 200 == 0:
+                mean      = cp.round(cp.mean(errors), 3)
+                max_error = cp.round(cp.max(errors), 3)    
+                indices   = cp.where(errors<self.theta)
+                logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
 
             ii += 1
 
