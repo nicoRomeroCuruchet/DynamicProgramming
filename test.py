@@ -1,33 +1,35 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
 import pickle
 import numpy as np
+import matplotlib.pyplot as plt
 from PolicyIteration import PolicyIteration
-from utils.utils import plot_2D_value_function, plot_3D_value_function, test_enviroment
-
 from classic_control.cartpole import CartPoleEnv
 from classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 
 
-env=Continuous_MountainCarEnv()
+env = CartPoleEnv(sutton_barto_reward=True)
+# position thresholds:
+x_lim         = 2.4
+theta_lim     = 0.418 
+# velocity thresholds:
+x_dot_lim     = 3.1
+theta_dot_lim = 3.1
 
 bins_space = {
-    "x_space":     np.linspace(env.min_position, env.max_position, 70,      dtype=np.float32),    # position space    (0)
-    "x_dot_space": np.linspace(-abs(env.max_speed), abs(env.max_speed), 70, dtype=np.float32),    # velocity space    (1)
+    "x_space"         : np.linspace(-x_lim, x_lim, 15,  dtype=np.float32),                     # position space          (0)
+    "x_dot_space"     : np.linspace(-x_dot_lim, x_dot_lim, 15,  dtype=np.float32),             # velocity space          (1)
+    "theta_space"     : np.linspace(-theta_lim, theta_lim, 15, dtype=np.float32),              # angle space             (2)
+    "theta_dot_space" : np.linspace(-theta_dot_lim, theta_dot_lim, 15, dtype=np.float32),      # angular velocity space  (3)
 }
 
 pi = PolicyIteration(
-    env=env,    
+    env=env, 
     bins_space=bins_space,
-    action_space=np.linspace(-1.0, +1.0,9, dtype=np.float32),
+    action_space=np.array([0, 1], dtype=np.int32),
     gamma=0.99,
-    theta=1e-3,
+    theta=1e-3
 )
 
 pi.run()
-
 
 with open(env.__class__.__name__ + ".pkl", "rb") as f:
     pi: PolicyIteration = pickle.load(f)

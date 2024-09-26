@@ -199,7 +199,7 @@ def test_enviroment(task: gym.Env,
                     option_reset:  dict = None):
     """
     Test the environment using the given policy iteration algorithm.
-
+    
     Parameters:
     - task (gym.Env): The environment to test.
     - pi (PolicyIteration): The policy iteration algorithm.
@@ -212,9 +212,9 @@ def test_enviroment(task: gym.Env,
         observation, _ = task.reset(options=option_reset)
         for timestep in range(1, episode_lengh):
             action = get_optimal_action(observation, pi)
-            observation, reward, terminated, _, _ = task.step(action)
+            observation, reward, terminated, _, _ = task.step_to_render(action)
             total_reward += reward
-            if terminated:
+            if terminated or timestep == episode_lengh-1:
                 print(f"Episode {episode} finished after {timestep} timesteps")
                 print(f"Total reward: {total_reward}")
                 break

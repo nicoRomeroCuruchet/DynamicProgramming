@@ -93,8 +93,8 @@ class PolicyIteration(object):
         self.bins_space:dict   = bins_space
 
         #get the minimum and maximum values for each dimension       
-        self.cell_lower_bounds = np.array([min(v) for v in self.bins_space.values()], dtype=np.float32)
-        self.cell_upper_bounds = np.array([max(v) for v in self.bins_space.values()], dtype=np.float32)
+        self.cell_lower_bounds = cp.array([min(v) for v in self.bins_space.values()], dtype=cp.float32)
+        self.cell_upper_bounds = cp.array([max(v) for v in self.bins_space.values()], dtype=cp.float32)
         logger.info(f"Lower bounds: {self.cell_lower_bounds}")
         logger.info(f"Upper bounds: {self.cell_upper_bounds}")
         # Generate the grid points for all dimensions
@@ -112,11 +112,6 @@ class PolicyIteration(object):
         logger.info(f"Number of states: {len(self.states_space)}")
         logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
         
-        # Create the Delaunay triangulation
-        logger.info("Creating Delaunay triangulation...")
-        self.triangulation = Delaunay(self.states_space)
-        logger.info("Delaunay triangulation created.")
-        
         #to plot delaunay triangulation:    
         #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
         # plot the triangulation
@@ -131,19 +126,6 @@ class PolicyIteration(object):
         self.simplexes      = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, self.space_dim), dtype=cp.float32)
         self.lambdas        = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.float32)
         self.points_indexes = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.int32)
-
-
-        dtype = [('reward', np.float32), 
-                 ('previous_state', np.float32, (self.space_dim,)), 
-                 ('next_state', np.float32, (self.space_dim,)),
-                 ('simplexes',  np.float32, (self.num_simplex_points, self.space_dim)), 
-                 ('lambdas', np.float32, (self.num_simplex_points,1)),
-                 ('points_indexes', np.int32, (self.num_simplex_points,1))] 
-        
-
-
-        # Initialize the transition and reward function table
-        self.transition_reward_table = np.zeros((self.num_states, self.num_actions), dtype=dtype)
         # The policy is a mapping from states to probabilities of selecting each action
         self.policy = cp.ones((self.num_states, self.num_actions), dtype=cp.float32) / self.num_actions
         # The value function is an estimate of the expected return from a given state
@@ -152,7 +134,7 @@ class PolicyIteration(object):
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         
 
-    def __in_cell__(self, obs: np.ndarray) -> np.ndarray:
+    def __in_cell__(self, obs: cp.ndarray) -> cp.ndarray:
         """ Check if the given observation is within the valid state bounds.
 
         Parameters:
@@ -160,7 +142,7 @@ class PolicyIteration(object):
 
         Returns:
         np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
-        return np.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
+        return cp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
     def barycentric_coordinates(self, points:np.ndarray)->tuple:
 
@@ -215,110 +197,7 @@ class PolicyIteration(object):
         #assert cp.all(condition) == True, f"condition: {condition}"
         lambdas = cp.asnumpy(lambdas_gpu)
         return lambdas, simplexes, points_indexes
-    
-    def step_1(self, state, action):
-
-        self.gravity = 9.8
-        self.masscart = 1.0
-        self.masspole = 0.1
-        self.total_mass = self.masspole + self.masscart
-        self.length = 0.5  # actually half the pole's length
-        self.polemass_length = self.masspole * self.length
-        self.force_mag = 10.0
-        self.tau = 0.02  # seconds between state updates
-        self._sutton_barto_reward = True
-        self.kinematics_integrator = "euler"
-        self.steps_beyond_terminated = None
-        self.theta_threshold_radians = 12 * 2 * np.pi / 360
-        self.x_threshold = 2.4
-
-        x, x_dot, theta, theta_dot = state[:,0], state[:,1], state[:,2], state[:,3]
-        force = self.force_mag if action == 1 else -self.force_mag
-        costheta = np.cos(theta)
-        sintheta = np.sin(theta)
-        
-
-        # For the interested reader:
-        # https://coneural.org/florian/papers/05_cart_pole.pdf
-        temp = (
-            force + self.polemass_length * theta_dot**2 * sintheta
-        ) / self.total_mass
-        thetaacc = (self.gravity * sintheta - costheta * temp) / (
-            self.length * (4.0 / 3.0 - self.masspole * costheta**2 / self.total_mass)
-        )
-        xacc = temp - self.polemass_length * thetaacc * costheta / self.total_mass
-
-        if self.kinematics_integrator == "euler":
-            x = x + self.tau * x_dot
-            x_dot = x_dot + self.tau * xacc
-            theta = theta + self.tau * theta_dot
-            theta_dot = theta_dot + self.tau * thetaacc
-        else:  # semi-implicit euler
-            x_dot = x_dot + self.tau * xacc
-            x = x + self.tau * x_dot
-            theta_dot = theta_dot + self.tau * thetaacc
-            theta = theta + self.tau * theta_dot
-
-        state = np.vstack([x, x_dot, theta, theta_dot]).T
- 
-        terminated = np.where((x < -self.x_threshold) | 
-                               (x >  self.x_threshold) | 
-                               (theta < -self.theta_threshold_radians) | 
-                               (theta > self.theta_threshold_radians), True, False)
-        
-        reward = np.zeros_like(terminated, dtype=np.float32)
-        reward = np.where(terminated, -1, 0)
-        states_outside = self.__in_cell__(state)
-        reward = np.where(states_outside, reward, -100)
-
-        return np.array(state, dtype=np.float32), reward, terminated, False, {}
-
-    def step(self, state:np.ndarray, action:float)->tuple:
-
-        min_action    = -1.0
-        max_action    = +1.0
-        min_position  = -1.2
-        max_position  = +0.6
-        max_speed     = +0.07
-
-        goal_position = (
-            0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
-        )
-        goal_velocity = (
-            0.0  # was 0.0 in gymnasium, 0.0 in Arnaud de Broissia's version
-        )
-        power = 0.0008 # 0.0015
-
-        position = state[:,0]  # avoid modifying the original grid
-        velocity = state[:,1]  # avoid modifying the original grid
-
-        # transfer to gpu
-        position = cp.asarray(position)
-        velocity = cp.asarray(velocity)
-        action   = cp.asarray(action)
-
-        force     = min(max(action, min_action), max_action)
-        velocity += force * power - 0.0025 * cp.cos(3 * position)
-        velocity  = cp.clip(velocity, -max_speed, max_speed)
-
-        position += velocity
-        position  = cp.clip(position, min_position, max_position)
-
-        velocity   = cp.where((position == min_position) & (velocity < 0), 0, velocity)
-        terminated = cp.where((position >= goal_position) & (velocity >= goal_velocity), True, False)
-
-        reward  = cp.zeros_like(terminated, dtype=cp.float32)
-        reward  = cp.where(terminated, 100.0, reward)
-        reward -= cp.power(action, 2) * 0.1
-
-        # transfer to cpu
-        position   = cp.asnumpy(position)
-        velocity   = cp.asnumpy(velocity)
-        terminated = cp.asnumpy(terminated)
-        reward     = cp.asnumpy(reward)
-
-        return np.vstack([position, velocity]).T, reward, terminated, False, {}
-
+  
     def calculate_transition_reward_table(self):
         """
         Computes the transition and reward table for each state-action pair.
@@ -331,34 +210,34 @@ class PolicyIteration(object):
                 - "next_state": The resulting state after taking the specified action in the given state.
                 - "simplex": The simplex associated with the resulting state.
                 - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
-        """
+        """      
         for j, action in enumerate(self.action_space):
-            states = np.array(self.states_space, dtype=np.float32).copy()          
-            obs, reward, _, _, _ = self.step(states, action)
+            self.env.state = cp.asarray(self.states_space, dtype=cp.float32)   
+            obs_gpu, reward_gpu, _, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
-            states_outside = self.__in_cell__(obs)
-            if bool(np.any(~states_outside)):
-                # get the indexes of the states outside the bounds
-                #indexes = np.where(states_outside)
+            states_outside_gpu = self.__in_cell__(obs_gpu)
+            if bool(cp.any(~states_outside_gpu)):
+                # get the indexes of the states outside the bounds 
+                reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if any state is outside the bounds of the environment clip it to the bounds
-            obs = np.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
-            # get the barycentric coordinates of the resulting state
-            lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
+            obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
+            # get the barycentric coordinates of the resulting state in CPU for now.
+            obs_cpu = cp.asnumpy(obs_gpu)
+            lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs_cpu)
             # store the transition and reward information and transfer to gpu
-            self.reward[:,j]         = cp.asarray(reward)
+            self.reward[:,j]         = reward_gpu
+            self.next_state[:,j]     = obs_gpu
             self.previous_state[:,j] = cp.asarray(self.states_space)
-            self.next_state[:,j]     = cp.asarray(obs)
             self.lambdas[:,j]        = cp.asarray(lambdas)
             self.simplexes[:,j]      = cp.asarray(simplexes)
             self.points_indexes[:,j] = cp.asarray(points_indexes) 
 
-    
     def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
         """
         Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
-            lambdas (np.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
+            lambdas (cp.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
             point_indexes (np.ndarray): The point indexes array of shape (num_states, num_simplex_points,1).
             value_function (np.ndarray): The value function.
         Returns:
@@ -402,7 +281,7 @@ class PolicyIteration(object):
             self.value_function = new_value_function    # update the value function
             
             # log the progress
-            if ii % 200 == 0:
+            if ii % 100 == 0:
                 mean      = cp.round(cp.mean(errors), 3)
                 max_error = cp.round(cp.max(errors), 3)    
                 indices   = cp.where(errors<self.theta)
@@ -444,6 +323,11 @@ class PolicyIteration(object):
 
         """ Executes the Policy Iteration algorithm for a specified number of steps or until convergence. """
 
+        # Create the Delaunay triangulation
+        logger.info("Creating Delaunay triangulation over the state space...")
+        self.triangulation = Delaunay(self.states_space)
+        logger.info("Delaunay triangulation created.")
+        # Generate the transition and reward function table
         logger.info("Generating transition and reward function table...")
         self.calculate_transition_reward_table()
         logger.info("Transition and reward function table generated.")
