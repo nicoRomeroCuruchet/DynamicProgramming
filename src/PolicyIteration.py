@@ -9,7 +9,7 @@ from utils.utils import plot_3D_value_function
 import numpy as np
 try:
     import cupy as cp 
-    if not cp.cuda.runtime.is_available():
+    if not cp.cuda.is_available():
         raise ImportError("CUDA is not available. Falling back to NumPy.")
 except (ImportError, AttributeError):
     import numpy as cp

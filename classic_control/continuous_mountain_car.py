@@ -26,7 +26,7 @@ from gymnasium.error import DependencyNotInstalled
 import numpy as np
 try:
     import cupy as cp 
-    if not cp.cuda.runtime.is_available():
+    if not cp.cuda.is_available():
         raise ImportError("CUDA is not available. Falling back to NumPy.")
 except (ImportError, AttributeError):
     cp = np
