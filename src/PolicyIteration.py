@@ -15,7 +15,7 @@ try:
     logger.info("CUDA driver is available.")
 
 except (ImportError, AttributeError):
-    
+
     import numpy as cp
     logger.warning("CUDA is not available. Falling back to NumPy.")
     def asarray(arr, *args, **kwargs):
@@ -373,6 +373,11 @@ class PolicyIteration(object):
     def save(self):
 
         """  Saves the policy and value function to files. """
+
+        # transfer to cpu
+        self.policy         = cp.asnumpy(self.policy)
+        self.value_function = cp.asnumpy(self.value_function)
+        self.states_space   = cp.asnumpy(self.states_space)
 
         with open(self.env.__class__.__name__ + ".pkl", "wb") as f:
             pickle.dump(self, f)
