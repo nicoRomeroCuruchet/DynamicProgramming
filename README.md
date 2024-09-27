@@ -23,9 +23,6 @@ The evolution of the value function  for the mountain car as a function of the n
  	``` bash
     git clone https://github.com/nicoRomeroCuruchet/DynamicProgramming.git
   	```
-  	``` bash
-    cd DynamicProgramming
-	```
 - Create Conda environment with dependencies
 	``` bash
 	conda create --name DynamicProgramming python=3.11 ipykernel
@@ -35,6 +32,9 @@ The evolution of the value function  for the mountain car as a function of the n
 	conda activate DynamicProgramming
 	```
 - Install the Policy Iteration class:
+  	``` bash
+    cd DynamicProgramming
+	```
 	``` bash
 	pip install -e .
 	```
