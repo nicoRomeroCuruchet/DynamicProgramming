@@ -8,10 +8,14 @@ from utils.utils import plot_3D_value_function
 
 import numpy as np
 try:
+
     import cupy as cp 
     if not cp.cuda.is_available():
         raise ImportError("CUDA is not available. Falling back to NumPy.")
+    logger.info("CUDA driver is available.")
+
 except (ImportError, AttributeError):
+    
     import numpy as cp
     logger.warning("CUDA is not available. Falling back to NumPy.")
     def asarray(arr, *args, **kwargs):
