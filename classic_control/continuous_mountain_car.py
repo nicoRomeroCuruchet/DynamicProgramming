@@ -16,12 +16,20 @@ permalink: https://perma.cc/6Z2N-PFWC
 import math
 from typing import Optional
 
-import numpy as np
+
 
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
+
+import numpy as np
+try:
+    import cupy as cp 
+    if not cp.cuda.is_available():
+        raise ImportError("CUDA is not available. Falling back to NumPy.")
+except (ImportError, AttributeError):
+    cp = np
 
 
 class Continuous_MountainCarEnv(gym.Env):
@@ -124,8 +132,8 @@ class Continuous_MountainCarEnv(gym.Env):
             0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
         )
         self.goal_velocity = goal_velocity
-        self.power = 0.0008 # 0.0015
- 
+        self.power = .0008 #0.0015
+
         self.low_state = np.array(
             [self.min_position, -self.max_speed], dtype=np.float32
         )
@@ -148,7 +156,28 @@ class Continuous_MountainCarEnv(gym.Env):
             low=self.low_state, high=self.high_state, dtype=np.float32
         )
 
-    def step(self, action: np.ndarray):
+    def step(self, action:float)->tuple:
+
+        position = self.state[:,0]  # avoid modifying the original grid
+        velocity = self.state[:,1]  # avoid modifying the original grid
+
+        force     = min(max(action, self.min_action), self.max_action)
+        velocity += force * self.power - 0.0025 * cp.cos(3 * position)
+        velocity  = cp.clip(velocity, -self.max_speed, self.max_speed)
+
+        position += velocity
+        position  = cp.clip(position, self.min_position, self.max_position)
+
+        velocity   = cp.where((position == self.min_position) & (velocity < 0), 0, velocity)
+        terminated = cp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
+
+        reward  = cp.zeros_like(terminated, dtype=cp.float32)
+        reward  = cp.where(terminated, 100.0, reward)
+        reward -= cp.power(action, 2) * 0.1
+
+        return cp.vstack([position, velocity]).T, reward, terminated, False, {}
+
+    def step_to_render(self, action: np.ndarray):
         position = self.state[0]
         velocity = self.state[1]
         force = min(max(action, self.min_action), self.max_action)

@@ -1,14 +1,34 @@
 import os
 import pickle
-import numpy as np
-from tqdm import tqdm
 import gymnasium as gym
 from loguru import logger
-import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
-from scipy.optimize import minimize
-from utils.utils import plot_2D_value_function,\
-                         plot_3D_value_function
+from utils.utils import plot_3D_value_function
+
+
+import numpy as np
+try:
+
+    import cupy as cp 
+    if not cp.cuda.is_available():
+        raise ImportError("CUDA is not available. Falling back to NumPy.")
+    logger.info("CUDA driver is available.")
+
+except (ImportError, AttributeError):
+
+    import numpy as cp
+    logger.warning("CUDA is not available. Falling back to NumPy.")
+    def asarray(arr, *args, **kwargs):
+        """In NumPy, this just ensures the object is a NumPy array, with support for additional arguments."""
+        return np.array(arr, *args, **kwargs)
+    
+    def asnumpy(arr, *args, **kwargs):
+        """In NumPy, this just ensures the object is a NumPy array."""
+        return np.array(arr, *args, **kwargs) 
+           
+    np.asarray = asarray
+    np.asnumpy = asnumpy
+    cp = np
 
 
 class PolicyIteration(object):
@@ -52,10 +72,11 @@ class PolicyIteration(object):
                  action_space:np.array,
                  nsteps:int=100,
                  gamma:float= 0.99,
+                 log:bool=False,
                  theta:float= 5e-2):
-        """ 
-        Initializes the PolicyIteration object with the environment, state and action spaces, 
-        and algorithm parameters.
+        
+        """   Initializes the PolicyIteration object with the environment, state and action spaces, 
+              and algorithm parameters.
 
         Parameters:
             env (gym.Env): The Gym environment to perform policy iteration on.
@@ -66,13 +87,14 @@ class PolicyIteration(object):
         
         Raises:
             ValueError: If action_space or bins_space is not provided or empty.
-            TypeError: If action_space or bins_space is not of the correct type.
-        """
-        self.env:gym.Env = env    # working environment
-        self.gamma:float = gamma  # discount factor
-        self.theta:float = theta  # convergence threshold for policy evaluation
-        self.nsteps:int = nsteps  # number of steps to run the policy iteration
-        self.counter:int = 0      # counter for the number of steps
+            TypeError: If action_space or bins_space is not of the correct type. """
+        
+        self.env:gym.Env = env       # working environment
+        self.gamma:float = gamma     # discount factor
+        self.theta:float = theta     # convergence threshold for policy evaluation
+        self.nsteps:int = nsteps     # number of steps to run the policy iteration
+        self.counter:int = 0         # counter for the number of steps
+        self.log:bool = log          # log the progress of the policy iteration
 
         # if action space is not provided, raise an error
         if action_space is None: 
@@ -94,287 +116,225 @@ class PolicyIteration(object):
         self.bins_space:dict   = bins_space
 
         #get the minimum and maximum values for each dimension       
-        self.cell_lower_bounds = np.array([min(v) for v in self.bins_space.values()], dtype=np.float32)
-        self.cell_upper_bounds = np.array([max(v) for v in self.bins_space.values()], dtype=np.float32)
+        self.cell_lower_bounds = cp.array([min(v) for v in self.bins_space.values()], dtype=cp.float32)
+        self.cell_upper_bounds = cp.array([max(v) for v in self.bins_space.values()], dtype=cp.float32)
         logger.info(f"Lower bounds: {self.cell_lower_bounds}")
         logger.info(f"Upper bounds: {self.cell_upper_bounds}")
         # Generate the grid points for all dimensions
         self.grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
         # Flatten and stack to create a list of points in the space
         self.states_space = np.vstack([g.ravel() for g in self.grid], dtype=np.float32).T
-        # Create the Delaunay triangulation
-        logger.info("Creating Delaunay triangulation...")
-        self.triangulation = Delaunay(self.states_space)
-        logger.info("Delaunay triangulation created.")
-    
-        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
-        # plot the triangulation
-        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
-        #plt.scatter(-1.2,  0. , color='Red', s=10)
-        #plt.show()
+        # 
+        self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
+        self.space_dim:int          = int(self.states_space[0].shape[0])
+        self.action_space_size:int  = int(self.action_space.shape[0])   
+        self.num_states:int         = int(self.states_space.shape[0])
+        self.num_actions:int        = int(self.action_space.shape[0])
 
-        self.num_simplex_points = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
-
-        num_states = self.states_space.shape[0]
-        num_actions = self.action_space.shape[0]
-
-        dtype = [('reward', np.float32), 
-                 ('previous_state', np.float32, self.states_space[0].shape), 
-                 ('next_state', np.float32, self.states_space[0].shape), 
-                 ('lambdas', np.float32, (1,self.num_simplex_points)),
-                 ('simplex',  np.float32, (self.num_simplex_points, self.states_space[0].shape[0])),                
-                 ('points_indexes', np.int32, (self.num_simplex_points,))] 
-
-        # Initialize the transition and reward function table
-        self.transition_reward_table = np.zeros((num_states, num_actions), dtype=dtype)
-        # The policy is a mapping from states to probabilities of selecting each action
-        self.policy = np.ones((num_states, num_actions), dtype=np.float32) / num_actions
-        # The value function is an estimate of the expected return from a given state
-        self.value_function = np.zeros(num_states, dtype=np.float32)
-        logger.info("Policy Iteration was correctly initialized.")
-        logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         logger.info(f"The action space is: {self.action_space}")
         logger.info(f"Number of states: {len(self.states_space)}")
         logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
-
-    def __check_state__(self, obs:np.array)->bool:
-        """
-        Checks if the given state is within the bounds of the environment.
-
-        Parameters:
-            obs (np.array): The obs to check.
-
-        Returns:
-            bool: True if the obs is within the bounds, False otherwise.
-        """ 
-        return np.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds))
-
-    def barycentric_coordinates_2D(self, point:np.array)->tuple:
-        """
-        Calculates the barycentric coordinates of a 2D point within a convex hull.
-        Parameters:
-        - point: np.array
-            The 2D point for which to calculate the barycentric coordinates.
-        Returns:
-        - result: np.array
-            The barycentric coordinates of the point.
-        - vertices_coordinates: np.array
-            The coordinates of the vertices of the simplex containing the point.
-        Raises:
-        - ValueError: If the point is outside the convex hull.
-        """
-        simplex_index = self.triangulation.find_simplex(point)
-        if simplex_index != -1:  # -1 indicates that the point is outside the convex hull
-            simplex_vertices = self.triangulation.simplices[simplex_index]
-            vertices_coordinates = self.points[simplex_vertices]
-        else:
-            logger.error(f"The point {point} is outside the convex hull.")
-            raise ValueError(f"The point {point} is outside the convex hull.")
-        
-        vertices_coordinates = self.points[simplex_vertices]
-        a, b, c = vertices_coordinates[0], vertices_coordinates[1],  vertices_coordinates[2]
-        v0, v1, v2 = b - a, c - a, point - a
-        # Compute the denominator
-        den = v0[0] * v1[1] - v1[0] * v0[1]
-        # Calculate barycentric coordinates
-        v = (v2[0] * v1[1] - v1[0] * v2[1]) / den
-        w = (v0[0] * v2[1] - v2[0] * v0[1]) / den
-        u = 1.0 - v - w
-        # Check if the point is inside the simplex
-        result = np.array([u, v, w], dtype=np.float32)
-        if np.any(result < -1.0e-2) and abs(np.sum(result) - 1.0) > 1.0e-2:
-            logger.error(f"The point {point} is outside the convex hull.")
-            raise ValueError(f"The point {point} is outside the convex hull.")
-        
-        return result, np.array(vertices_coordinates, dtype=np.float32)
     
-    def barycentric_coordinates(self, point:np.array)->tuple:
-
-        """
-        Calculates the barycentric coordinates of a 2D point within a convex hull.
-        Parameters:
-        - point: np.array
-            The 2D point for which to calculate the barycentric coordinates.
-        Returns:
-        - result: np.array
-            The barycentric coordinates of the point.
-        - vertices_coordinates: np.array
-            The coordinates of the vertices of the simplex containing the point.
-        Raises:
-        - ValueError: If the point is outside the convex hull.
-        """
-
-        assert point.shape == (self.states_space[0].shape[0],), f"point shape: {point.shape}"
-
-        simplex_index = self.triangulation.find_simplex(point)
-        if simplex_index != -1:  # -1 indicates that the point is outside the convex hull
-            points_indexes = self.triangulation.simplices[simplex_index]
-        else:
-            # raise an error
-            raise ValueError(f"The point {point} is outside the convex hull.")
+        # Initialize the transition and reward function table
+        self.reward         = cp.zeros((self.num_states, self.num_actions), dtype=cp.float32)
+        self.previous_state = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
+        self.next_state     = cp.zeros((self.num_states, self.num_actions, self.space_dim), dtype=cp.float32)
+        self.simplexes      = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, self.space_dim), dtype=cp.float32)
+        self.lambdas        = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.float32)
+        self.points_indexes = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.int32)
+        # The policy is a mapping from states to probabilities of selecting each action
+        self.policy = cp.ones((self.num_states, self.num_actions), dtype=cp.float32) / self.num_actions
+        # The value function is an estimate of the expected return from a given state
+        self.value_function = cp.zeros(self.num_states, dtype=cp.float32)
+        logger.info("Policy Iteration was correctly initialized.")
+        logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         
-        simplex = self.states_space[points_indexes]
-        simplex = np.array(simplex, dtype=np.float32).reshape(self.num_simplex_points, 
-                                                              self.states_space[0].shape[0])
 
-        A = np.vstack([simplex.T, np.ones(len(simplex))])
-        b = np.hstack([point, [1]]).reshape(self.states_space[0].shape[0]+1,)       
+    def __in_cell__(self, obs: cp.ndarray) -> cp.ndarray:
+
+        """ Check if the given observation is within the valid state bounds.
+
+        Parameters:
+            obs (np.ndarray): The observation array to check.
+
+        Returns:
+            np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
+        
+        return cp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
+  
+    def barycentric_coordinates(self, points:np.ndarray)->tuple:
+
+        """ Calculates the barycentric coordinates of a 2D point within a convex hull.
+        Parameters:
+            point (np.array): The 2D point for which to calculate the barycentric coordinates.
+        Returns:
+            result (np.array): The barycentric coordinates of the point.
+            vertices_coordinates (np.array): The coordinates of the vertices of the simplex containing the point.
+        Raises:
+            ValueError: If the point is outside the convex hull. 
+            ValueError: If the matrix A is singular. """
+
+        assert points.shape == self.states_space.shape, f"point shape: {points.shape} and states_space shape: {self.states_space.shape}"
+        # transform the points to a 3D space
+        simplex_indexes = self.triangulation.find_simplex(points)
+        # check if the point is outside the convex hull
+        if np.any(simplex_indexes == -1):
+            raise ValueError(f"The point {np.where(simplex_indexes == -1)[0]} is outside the convex hull.")
+        
+        points_indexes = self.triangulation.simplices[simplex_indexes]
+        # get the simplexes
+        simplexes = self.states_space[points_indexes]
+        # Transpose the matrices in one go
+        transposed_simplexes = simplexes.transpose(0, 2, 1)
+        # Create the row of ones to be added, matching the shape (number of matrices, 1 row, number of columns)
+        ones_row = np.ones((transposed_simplexes.shape[0], 1, transposed_simplexes.shape[2]))
+        # Stack the transposed matrices with the row of ones along the second axis
+        A = np.concatenate((transposed_simplexes, ones_row), axis=1)
+        b = np.hstack([points,  np.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
+        # Calculate the inverse of the resulting matrix
+        # transfer to gpu
+        A_gpu = cp.asarray(A, dtype=np.float32)
         try:
-            inv_A = np.linalg.inv(A)
-
-        except np.linalg.LinAlgError as e:
-            #penrose-Moore pseudo inverse and log
-            inv_A = np.linalg.pinv(A)
-            logger.warning(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
-            #log the simplex
-            logger.warning(f"Simplex: {simplex} and the point is {point}")
-
-        # check the correct shapes for the matrices multiplication
-        assert inv_A.shape == (self.num_simplex_points, self.num_simplex_points), f"inv_A shape: {inv_A.shape}"
-        assert b.shape == (self.num_simplex_points,), f"b shape: {b.shape}"
-        # get barycentric coordinates: lambdas = A^-1 * b
-        lambdas = np.array(inv_A@b.T,dtype=np.float32).reshape(1,self.num_simplex_points)
-        # Check if the point is inside the simplex
-        if np.any(lambdas < -1.0e-2) and abs(np.sum(lambdas) - 1.0) > 1.0e-2:
-            logger.error(f"The point {point} is outside the convex hull.")
-            raise ValueError(f"The point {point} is outside the convex hull.")
-        
-        assert lambdas.shape == (1,self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
-        return lambdas, (simplex, points_indexes)
+            inv_A_gpu = cp.linalg.inv(A_gpu)
+        except cp.linalg.LinAlgError as e:
+            raise ValueError(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
     
+        assert inv_A_gpu.shape == (self.num_states, self.num_simplex_points, self.num_simplex_points), f"inv_A shape: {inv_A_gpu.shape}"
+        assert b.shape == (self.num_states, self.num_simplex_points, 1), f"b shape: {b.shape}"
+
+        b_gpu       = cp.asarray(b, dtype=cp.float32)
+        lambdas_gpu = cp.array(inv_A_gpu@b_gpu, dtype=cp.float32)
+
+        assert lambdas_gpu.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas_gpu.shape}"
+        points_indexes = points_indexes.reshape(self.num_states, self.num_simplex_points,1)
+        # to test recontruct one point:
+        #condition = cp.linalg.norm(np.matmul(A_gpu, lambdas_gpu) - b_gpu, axis=1) < 1e-2
+        #assert cp.all(condition) == True, f"condition: {condition}"
+        lambdas = cp.asnumpy(lambdas_gpu)
+        return lambdas, simplexes, points_indexes
+  
     def calculate_transition_reward_table(self):
-        """
-        Computes the transition and reward table for each state-action pair.
-        
+
+        """ Computes the transition and reward table for each state-action pair.
+            "next_state": The resulting state after taking the specified action in the given state.
+            "reward": The reward obtained when taking the specified action in the given state.
+            "previous_state": The state from which the action was taken.
+            "lambdas": The barycentric coordinates of the resulting state with respect to the simplex.        
+            "simplexes": The simplex associated with the resulting state.
+            "points_indexes": The indexes of the points in the simplex. """   
+           
+        for j, action in enumerate(self.action_space):
+            self.env.state = cp.asarray(self.states_space, dtype=cp.float32)   
+            obs_gpu, reward_gpu, _, _, _ = self.env.step(action)
+            # log if any state is outside the bounds of the environment
+            states_outside_gpu = self.__in_cell__(obs_gpu)
+            if bool(cp.any(~states_outside_gpu)):
+                # get the indexes of the states outside the bounds 
+                reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
+                logger.warning(f"Some states are outside the bounds of the environment.")
+            # if any state is outside the bounds of the environment clip it to the bounds
+            obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
+            # get the barycentric coordinates of the resulting state in CPU for now.
+            obs_cpu = cp.asnumpy(obs_gpu)
+            lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs_cpu)
+            # store the transition and reward information and transfer to gpu
+            self.next_state[:,j]     = obs_gpu
+            self.reward[:,j]         = reward_gpu
+            self.previous_state[:,j] = cp.asarray(self.states_space, dtype=cp.float32)
+            self.lambdas[:,j]        = cp.asarray(lambdas, dtype=cp.float32)
+            self.simplexes[:,j]      = cp.asarray(simplexes, dtype=cp.float32)
+            self.points_indexes[:,j] = cp.asarray(points_indexes, dtype=cp.int32) 
+
+    def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
+
+        """ Calculates the next state value based on the given lambdas, point indexes, and value function.
+        Args:
+            lambdas (cp.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
+            point_indexes (cp.ndarray): The point indexes array of shape (num_states, num_simplex_points,1).
+            value_function (cp.ndarray): The value function.
         Returns:
-            dict: A dictionary containing the transition and reward information for each state-action pair.
-                The keys are tuples of the form (state, action), and the values are dictionaries with the following keys:
-                - "reward": The reward obtained when taking the specified action in the given state.
-                - "previous_state": The state from which the action was taken.
-                - "next_state": The resulting state after taking the specified action in the given state.
-                - "simplex": The simplex associated with the resulting state.
-                - "barycentric_coordinates": The barycentric coordinates of the resulting state with respect to the simplex.
-        """
-        for i, state in enumerate(tqdm(self.states_space)):
-            for j, action in enumerate(self.action_space):
-                self.env.state = np.array(state, dtype=np.float32)          
-                obs, reward, _, _, _ = self.env.step(action)  
-
-                if not self.__check_state__(obs):
-                    logger.warning(f"State {obs} is outside the bounds of the environment.")
-                    obs = np.array(state, dtype=np.float32) # revert to the previous state
-                    reward = -100.0 # penalize the agent for going outside the bounds
-                    
-                lambdas, simplex_info = self.barycentric_coordinates(np.array(obs, dtype=np.float32))
-                simplex, points_indexes = simplex_info  # the points indexes for the state space and the simplex
-                # assert shapes
-                assert points_indexes.shape == (self.num_simplex_points,), f"points_indexes shape: {points_indexes.shape}"
-                assert lambdas.shape == (1, self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
-                assert simplex.shape == (self.num_simplex_points, state.shape[0]),  f"simplex shape: {simplex.shape}"
-                # store the transition and reward information
-                self.transition_reward_table[i, j] = (reward, state, obs, lambdas, simplex, points_indexes)                
-
-    def get_value(self, 
-                  lambdas:np.array, 
-                  point_indexes:np.array, 
-                  value_function)->float:
-        """
-        Calculates the VF interpolation for a state given the barycentric coordinates and simplex.
-        Doing this interpolation is thus mathematically equivalent to probabilistically jumping to
-        a vertex: we approximate a deterministic continuous process by a stochastic discrete one
-
-        Parameters:
-            lambdas (np.array): Barycentric coordinates within the simplex.
-            simplex (list): List of points defining the simplex.
-            value_function (dict): The current value function.
-
-        Returns:
-            float: The calculated value of the state.
+            cp.ndarray: The next state value.
         Raises:
-            Exception: If a state in the simplex is not found in the value function.
-        """
-        assert lambdas.shape == (1,self.num_simplex_points), f"lambdas shape: {lambdas.shape}"
-        assert point_indexes.shape == (self.num_simplex_points,),  f"point_indexes shape: {point_indexes.shape}"
-
+            Exception: If states in point_indexes are not found in the value function. """
+        
+        assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
+        assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
         try:
-            values = np.array([value_function[i] for i in list(point_indexes)])
-            next_state_value = lambdas@values
+            values = value_function[point_indexes]
+            next_state_value = cp.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
         except (
             KeyError
         ):
-            next_state_value = 0
-            logger.error(f"States in {point_indexes} not found in the value function.")
+            next_state_value = None
             raise Exception(f"States in {point_indexes} not found in the value function.")
 
         return next_state_value
 
     def policy_evaluation(self):
-        """
-        Performs the policy evaluation step of the Policy Iteration, updating the value function.
-        """
-        max_error = -1.0
+
+        """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  """
+
+        max_error = 2*self.theta
         ii = 0 
         self.counter += 1
         logger.info("Starting policy evaluation")
-        while abs(max_error) > self.theta:
-            new_value_function = np.zeros_like(self.value_function) # initialize the new value function to zeros
-            errors = []
-            for i, state in enumerate(self.states_space):
-                new_val = 0
-                for j, action in enumerate(self.action_space):                
-                    reward, _, _, lambdas, _, points_indexes = self.transition_reward_table[i, j]
-                    # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
-                    next_state_value = self.get_value(lambdas, points_indexes, self.value_function)
-                    new_val += self.policy[i,j] * (reward + self.gamma * next_state_value)
-                new_value_function[i] = new_val
-                # update the error: the maximum difference between the new and old value functions
-                errors.append(abs(new_value_function[i] - self.value_function[i]))
-
-            self.value_function = new_value_function # update the value function
+        while cp.abs(float(max_error)) > self.theta:
+            # initialize the new value function to zeros
+            new_value_function = cp.zeros_like(self.value_function, dtype=cp.float32) 
+            new_val = cp.zeros_like(self.value_function, dtype=cp.float32)
+            for j, _ in enumerate(self.action_space):                
+                # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
+                next_state_value = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
+                new_val += self.policy[:,j] * (self.reward[:,j] + self.gamma * next_state_value)
+            new_value_function = new_val
+            # update the error: the maximum difference between the new and old value functions
+            errors = cp.fabs(new_value_function[:] - self.value_function[:])
+            self.value_function = new_value_function  # update the value function
             # log the progress
-            if ii % 150 == 0:    
-                mean = np.round(np.mean(errors), 4)
-                max_error = np.round(np.max(errors),4)
-                errs = np.array(errors)
-                indices = np.where(errs < self.theta)
-                logger.info(f"Max Error: {max_error} | Avg Error: {mean} | {errs[indices].shape[0]}<{self.theta}")
-                plot_3D_value_function(self.value_function,
-                                       self.states_space,
-                                       show=False,
-                                       number=int(self.counter*ii),
-                                       path=f"{PolicyIteration.metadata['img_path']}/3D_value_function_{self.counter*ii}.png")
-                #plot_2D_value_function(self.value_function,
-                #                       show=False,
-                #                       number=int(self.counter*ii), 
-                #                       path=f"{PolicyIteration.metadata['img_path']}/2D_value_function_{self.counter*ii}.png")
-                
-            
+            if ii % 150 == 0:
+                mean      = cp.round(cp.mean(errors), 3)
+                max_error = cp.round(cp.max(errors), 3)    
+                indices   = cp.where(errors<self.theta)
+                logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
+                # get date for the name of the image
+                if self.log:
+                    import time
+                    timestamp = int(time.time())
+                    img_name =  f"/3D_value_function_{timestamp}.png"
+                    __path__ = PolicyIteration.metadata['img_path'] + img_name
+                    # remove spaces in path
+                    __path__ = __path__.replace(" ", "_")
+                    vf_tmp = cp.asnumpy(self.value_function)
+                    plot_3D_value_function(vf = vf_tmp,
+                                        points = self.states_space,
+                                        normalize=True,
+                                        show=False,
+                                        path=str(__path__))
             ii += 1
 
         logger.info("Policy evaluation finished.")
 
     def policy_improvement(self)->bool:
-        """
-        Performs the policy improvement step, updating the policy based on the current value function.
+
+        """ Performs the policy improvement step, updating the policy based on the current value function.
 
         Returns:
-            bool: True if the policy is stable and no changes were made, False otherwise.
-        """
+            bool: True if the policy is stable and no changes were made, False otherwise. """
+        
         logger.info("Starting policy improvement")
         policy_stable = True
-        new_policy = np.zeros_like(self.policy) # initialize the new policy to zeros
-        for i, state in enumerate(self.states_space):
-            action_values = {}
-            for j, action in enumerate(self.action_space):
-                reward, _, _, lambdas, _, points_indexes = self.transition_reward_table[i, j]
-                action_values[action] = reward + self.gamma * self.get_value(lambdas, points_indexes, self.value_function)
+        new_policy = cp.zeros_like(self.policy) # initialize the new policy to zeros
+        action_values = cp.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=cp.float32)
+        for j, _ in enumerate(self.action_space):
+            # element-wise multiplication of the policy and the result
+            action_values_j = self.reward[:, j] + self.gamma * self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
+            action_values[:,j] = action_values_j 
+        # update the policy to select the action with the highest value
+        greedy_actions = cp.argmax(action_values, axis=1)
+        new_policy[cp.arange(new_policy.shape[0]) ,greedy_actions] = 1 
 
-            greedy_action, _ = max(action_values.items(), key=lambda pair: pair[1])
-            
-            new_policy[i,:] = np.array([int(action == greedy_action) for action in self.action_space])
-
-        if not np.array_equal(self.policy, new_policy):
-            logger.info(f"The number of updated different actions: {sum(self.policy != new_policy)}")
+        if not cp.array_equal(self.policy, new_policy):
+            logger.info(f"The number of updated different actions: {cp.sum(self.policy != new_policy)}")
             policy_stable = False
 
         logger.info("Policy improvement finished.")
@@ -382,13 +342,26 @@ class PolicyIteration(object):
         return policy_stable
         
     def run(self):
-        """
-        Executes the Policy Iteration algorithm for a specified number of steps or until convergence..
-        """
+
+        """ Executes the Policy Iteration algorithm for a specified number of steps or until convergence. """
+
+        # Create the Delaunay triangulation
+        logger.info("Creating Delaunay triangulation over the state space...")
+        self.triangulation = Delaunay(self.states_space)
+        logger.info("Delaunay triangulation created.")
+        
+        #to plot delaunay triangulation:    
+        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
+        # plot the triangulation
+        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
+        #plt.scatter(-1.2,  0. , color='Red', s=10)
+        #plt.show()
+        
+        # Generate the transition and reward function table
         logger.info("Generating transition and reward function table...")
         self.calculate_transition_reward_table()
         logger.info("Transition and reward function table generated.")
-        for n in tqdm(range(self.nsteps)):
+        for n in range(self.nsteps):
             logger.info(f"solving step {n}")
             self.policy_evaluation()
             if self.policy_improvement():
@@ -398,9 +371,14 @@ class PolicyIteration(object):
         self.env.close()
 
     def save(self):
-        """
-        Saves the policy and value function to files.
-        """
+
+        """  Saves the policy and value function to files. """
+
+        # transfer to cpu
+        self.policy         = cp.asnumpy(self.policy)
+        self.value_function = cp.asnumpy(self.value_function)
+        self.states_space   = cp.asnumpy(self.states_space)
+
         with open(self.env.__class__.__name__ + ".pkl", "wb") as f:
             pickle.dump(self, f)
             logger.info("Policy and value function saved.")        
