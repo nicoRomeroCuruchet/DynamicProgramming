@@ -2,7 +2,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from PolicyIteration import PolicyIteration
-from classic_control.cartpole import CartPoleEnv
+#from classic_control.cartpole import CartPoleEnv
 from classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 
 
@@ -23,14 +23,14 @@ pi = PolicyIteration(
     theta=1e-3,
 )
 
-#pi.run()
+pi.run()
 
 with open(env.__class__.__name__ + ".pkl", "rb") as f:
     pi: PolicyIteration = pickle.load(f)
 
 
 # Assuming 'pi' contains the state space and value function as provided
-vf = pi.value_function.get()
+vf = pi.value_function
 # Normalize the value function data
 normalized_vf = (vf - vf.min()) / (vf.max() - vf.min())
 # Flight path angle and airspeed normalization data

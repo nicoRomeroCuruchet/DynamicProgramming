@@ -7,15 +7,20 @@ permalink: https://perma.cc/C9ZM-652R
 import math
 from typing import Optional, Tuple, Union
 
-import cupy as cp
 import numpy as np
-
 import gymnasium as gym
 from gymnasium import logger, spaces
 from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
 from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
+
+try:
+    import cupy as cp 
+    if not cupy.cuda.runtime.is_available():
+        raise ImportError("CUDA is not available. Falling back to NumPy.")
+except (ImportError, AttributeError):
+    cp = np
 
 class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     """

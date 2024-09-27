@@ -1,11 +1,31 @@
 import os
 import pickle
-import cupy as cp
 import numpy as np
 import gymnasium as gym
 from loguru import logger
 from scipy.spatial import Delaunay
 from utils.utils import plot_3D_value_function
+
+try:
+    import cupy as cp 
+    if not cupy.cuda.runtime.is_available():
+        raise ImportError("CUDA is not available. Falling back to NumPy.")
+except (ImportError, AttributeError):
+
+    import numpy as cp
+    logger.warning("CUDA is not available. Falling back to NumPy.")
+    def asarray(arr, *args, **kwargs):
+        """In NumPy, this just ensures the object is a NumPy array, with support for additional arguments."""
+        return np.array(arr, *args, **kwargs)
+    
+    def asnumpy(arr, *args, **kwargs):
+        """In NumPy, this just ensures the object is a NumPy array."""
+        return np.array(arr, *args, **kwargs) 
+           
+    np.asarray = asarray
+    np.asnumpy = asnumpy
+    cp = np
+
 
 class PolicyIteration(object):
     """
@@ -48,6 +68,7 @@ class PolicyIteration(object):
                  action_space:np.array,
                  nsteps:int=100,
                  gamma:float= 0.99,
+                 log:bool=False,
                  theta:float= 5e-2):
         
         """   Initializes the PolicyIteration object with the environment, state and action spaces, 
@@ -69,6 +90,7 @@ class PolicyIteration(object):
         self.theta:float = theta     # convergence threshold for policy evaluation
         self.nsteps:int = nsteps     # number of steps to run the policy iteration
         self.counter:int = 0         # counter for the number of steps
+        self.log:bool = log          # log the progress of the policy iteration
 
         # if action space is not provided, raise an error
         if action_space is None: 
@@ -214,10 +236,10 @@ class PolicyIteration(object):
             # store the transition and reward information and transfer to gpu
             self.next_state[:,j]     = obs_gpu
             self.reward[:,j]         = reward_gpu
-            self.previous_state[:,j] = cp.asarray(self.states_space)
-            self.lambdas[:,j]        = cp.asarray(lambdas)
-            self.simplexes[:,j]      = cp.asarray(simplexes)
-            self.points_indexes[:,j] = cp.asarray(points_indexes) 
+            self.previous_state[:,j] = cp.asarray(self.states_space, dtype=cp.float32)
+            self.lambdas[:,j]        = cp.asarray(lambdas, dtype=cp.float32)
+            self.simplexes[:,j]      = cp.asarray(simplexes, dtype=cp.float32)
+            self.points_indexes[:,j] = cp.asarray(points_indexes, dtype=cp.int32) 
 
     def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
 
@@ -271,17 +293,19 @@ class PolicyIteration(object):
                 indices   = cp.where(errors<self.theta)
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
                 # get date for the name of the image
-                import time
-                timestamp = int(time.time())
-                img_name =  f"/3D_value_function_{timestamp}.png"
-                __path__ = PolicyIteration.metadata['img_path'] + img_name
-                # remove spaces in path
-                __path__ = __path__.replace(" ", "_")
-                plot_3D_value_function(self.value_function,
-                                        self.states_space,
+                if self.log:
+                    import time
+                    timestamp = int(time.time())
+                    img_name =  f"/3D_value_function_{timestamp}.png"
+                    __path__ = PolicyIteration.metadata['img_path'] + img_name
+                    # remove spaces in path
+                    __path__ = __path__.replace(" ", "_")
+                    vf_tmp = cp.asnumpy(self.value_function)
+                    plot_3D_value_function(vf = vf_tmp,
+                                        points = self.states_space,
+                                        normalize=True,
                                         show=False,
                                         path=str(__path__))
-                
             ii += 1
 
         logger.info("Policy evaluation finished.")

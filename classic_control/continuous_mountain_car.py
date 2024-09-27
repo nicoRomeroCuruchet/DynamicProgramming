@@ -16,13 +16,21 @@ permalink: https://perma.cc/6Z2N-PFWC
 import math
 from typing import Optional
 
-import cupy as cp
 import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
+
+
+
+try:
+    import cupy as cp 
+    if not cupy.cuda.runtime.is_available():
+        raise ImportError("CUDA is not available. Falling back to NumPy.")
+except (ImportError, AttributeError):
+    cp = np
 
 
 class Continuous_MountainCarEnv(gym.Env):

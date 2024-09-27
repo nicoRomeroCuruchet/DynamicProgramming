@@ -13,7 +13,7 @@ def plot_3D_value_function(vf: np.array,
     # Assuming points is a 2D array where each row is a point [position, velocity]
     X  = points[:, 0]  # x-axis (position)
     Y  = points[:, 1]  # y-axis (velocity)
-    vf = vf.get()      # z-axis (value function)
+    vf = vf            # z-axis (value function)
     vf_to_plot = (vf - vf.min()) / (vf.max() - vf.min()) if normalize else vf
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
