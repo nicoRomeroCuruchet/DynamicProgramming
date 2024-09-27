@@ -18,16 +18,13 @@ pi = PolicyIteration(
     gamma=0.99,
     theta=1e-3,
 )
-
 pi.run()
 
 with open(env.__class__.__name__ + ".pkl", "rb") as f:
     pi: PolicyIteration = pickle.load(f)
 
-
-__path__ = "./test.png"
 plot_3D_value_function(vf = pi.value_function,
                        points = pi.states_space,
                        normalize=True,
                        show=True,
-                       path=str(__path__))
+                       path="./test_vf.png")
