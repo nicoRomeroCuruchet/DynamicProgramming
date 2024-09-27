@@ -1,17 +1,17 @@
 import os
 import pickle
-import numpy as np
 import gymnasium as gym
 from loguru import logger
 from scipy.spatial import Delaunay
 from utils.utils import plot_3D_value_function
 
+
+import numpy as np
 try:
     import cupy as cp 
     if not cupy.cuda.runtime.is_available():
         raise ImportError("CUDA is not available. Falling back to NumPy.")
 except (ImportError, AttributeError):
-
     import numpy as cp
     logger.warning("CUDA is not available. Falling back to NumPy.")
     def asarray(arr, *args, **kwargs):

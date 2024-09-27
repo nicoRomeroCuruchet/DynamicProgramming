@@ -16,15 +16,14 @@ permalink: https://perma.cc/6Z2N-PFWC
 import math
 from typing import Optional
 
-import numpy as np
+
 
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
 
-
-
+import numpy as np
 try:
     import cupy as cp 
     if not cupy.cuda.runtime.is_available():
