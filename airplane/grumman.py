@@ -52,8 +52,6 @@ class Grumman:
         # self.STALL_AIRSPEED = 32.19  # Stall air speed  (Vs)  [m/s]
         self.STALL_AIRSPEED = np.sqrt(self.MASS * self.GRAVITY / (0.5 * self.AIR_DENSITY * \
                                     self.WING_SURFACE_AREA * self.CL_REF))    # Stall air speed  (Vs)  [m/s]
-        print(f"STALL_AIRSPEED: {self.STALL_AIRSPEED}")
-        
         self.MAX_CRUISE_AIRSPEED = 2 * self.STALL_AIRSPEED  # Maximum air speed  (Vs)  [m/s]
 
         # Throttle model

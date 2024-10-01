@@ -27,8 +27,8 @@ def plot_3D_value_function(vf: np.array,
     ax.set_xlabel('Flight Path Angle (γ) [deg]', labelpad=10)
     ax.set_ylabel('V/Vs', labelpad=10)
     ax.set_zlabel('Normalized Value Function', labelpad=10)
-    ax.set_xticks(np.linspace(min(X), max(X), 5))  # 5 ticks on the x-axis
-    ax.set_yticks(np.linspace(min(Y), max(Y), 5))  # 5 ticks on the y-axis
+    ax.set_xticks(np.linspace(min(X), max(X), 8))  # 5 ticks on the x-axis
+    ax.set_yticks(np.linspace(min(Y), max(Y), 8))  # 5 ticks on the y-axis
     # Add color bar to represent the value range
     if path is not None: plt.savefig(path)
     # Show the plot
@@ -76,7 +76,7 @@ def get_optimal_action(state:np.array, optimal_policy:np.array):
     Returns:
     action: The optimal action for the given state.
     """    
-    lambdas, simmplex_info  = get_barycentric_coordinates(optimal_policy, state)
+    lambdas, simmplex_info  = optimal_policy.barycentric_coordinates(state)
     simplex, points_indexes = simmplex_info
     actions = optimal_policy.action_space
     probabilities = np.zeros(len(actions), dtype=np.float32)

@@ -233,7 +233,7 @@ class PolicyIteration(object):
             states_outside_gpu = self.__in_cell__(obs_gpu)
             if bool(cp.any(~states_outside_gpu)):
                 # get the indexes of the states outside the bounds 
-                # reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
+                #reward_gpu = cp.where(states_outside_gpu, reward_gpu, -1)
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)

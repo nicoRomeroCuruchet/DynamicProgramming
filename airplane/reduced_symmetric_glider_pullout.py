@@ -18,7 +18,7 @@ class ReducedSymmetricGliderPullout(AirplaneEnv):
         super().__init__(self.airplane)
 
         # Observation space: Flight Path Angle (γ), Air Speed (V)
-        self.observation_space = spaces.Box(np.array([-np.pi, 0.9], np.float32), 
+        self.observation_space = spaces.Box(np.array([-np.pi, 0.6], np.float32), 
                                             np.array([0, 4.0], np.float32), shape=(2,), dtype=np.float32)
         # Action space: Lift Coefficient
         self.action_space = spaces.Box(-0.5, 1.0, shape=(1,), dtype=np.float32)
@@ -37,8 +37,8 @@ class ReducedSymmetricGliderPullout(AirplaneEnv):
 
         observation = self._get_obs()
         # clip the observation to the observation space
-        observation = np.clip(observation, self.observation_space.low, self.observation_space.high)
-
+        observation = np.clip(observation, self.observation_space.low, self.observation_space.high).flatten()
+        assert self.observation_space.contains(observation), "Observation is not within the observation space!"
         return observation, {}
 
     def step(self, action: list):
@@ -56,5 +56,5 @@ class ReducedSymmetricGliderPullout(AirplaneEnv):
 
 
     def termination(self,):
-        terminate =  np.where(((self.airplane.flight_path_angle >= 0.0) | (self.airplane.flight_path_angle <= -np.pi)), True, False)
+        terminate =  np.where( ((self.airplane.flight_path_angle >= 0.0) | (self.airplane.flight_path_angle <= -np.pi)), True, False)
         return terminate
