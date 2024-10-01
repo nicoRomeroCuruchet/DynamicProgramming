@@ -11,18 +11,24 @@ def plot_3D_value_function(vf: np.array,
     
     """ Plots a 3D value function in some color scale."""
     # Assuming points is a 2D array where each row is a point [position, velocity]
-    X  = points[:, 0]  # x-axis (position)
-    Y  = points[:, 1]  # y-axis (velocity)
+    X  = points[:, 0]  # x-axis
+    # transformb X from rad to deg
+    X = np.rad2deg(X)
+    Y  = points[:, 1]  # y-axis 
     vf = vf            # z-axis (value function)
     vf_to_plot = (vf - vf.min()) / (vf.max() - vf.min()) if normalize else vf
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     # Use plot_trisurf for unstructured triangular surface plot
     surf = ax.plot_trisurf(X, Y, vf_to_plot, cmap=cmap, edgecolor='white', linewidth=0.2)
+    # Add title
+    ax.set_title('Reduced Symmetric Glider Value Function ', pad=20)
     # Add labels
-    ax.set_xlabel('position')
-    ax.set_ylabel('velocity')
-    ax.set_zlabel('Normalized Value Function')
+    ax.set_xlabel('Flight Path Angle (γ) [deg]', labelpad=10)
+    ax.set_ylabel('V/Vs', labelpad=10)
+    ax.set_zlabel('Normalized Value Function', labelpad=10)
+    ax.set_xticks(np.linspace(min(X), max(X), 5))  # 5 ticks on the x-axis
+    ax.set_yticks(np.linspace(min(Y), max(Y), 5))  # 5 ticks on the y-axis
     # Add color bar to represent the value range
     if path is not None: plt.savefig(path)
     # Show the plot

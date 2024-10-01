@@ -1,26 +1,29 @@
 import pickle
+import airplane
 import numpy as np
+import gymnasium as gym
 from utils.utils import plot_3D_value_function   
 from PolicyIteration import PolicyIteration
-from classic_control.continuous_mountain_car import Continuous_MountainCarEnv
 
-env=Continuous_MountainCarEnv()
+glider = gym.make('ReducedSymmetricGliderPullout-v0')
 
 bins_space = {
-    "x_space":     np.linspace(env.min_position, env.max_position, 100,      dtype=np.float32),    # position space    (0)
-    "x_dot_space": np.linspace(-abs(env.max_speed), abs(env.max_speed), 100, dtype=np.float32),    # velocity space    (1)
+    "flight_path_angle": np.linspace(-np.pi, .001, 100,      dtype=np.float32),    # Flight Path Angle (γ)    (0)
+    "airspeed_norm":     np.linspace(0.7, 4,       100,      dtype=np.float32),    # Air Speed         (V)    (1)
 }
 
 pi = PolicyIteration(
-    env=env, 
+    env=glider, 
     bins_space=bins_space,
-    action_space=np.linspace(-1.0, +1.0,9, dtype=np.float32),
+    action_space=np.linspace(-0.5, 1.0, 15, dtype=np.float32),
     gamma=0.99,
     theta=1e-3,
 )
-pi.run()
 
-with open(env.__class__.__name__ + ".pkl", "rb") as f:
+
+#pi.run()
+
+with open(glider.__class__.__name__ + ".pkl", "rb") as f:
     pi: PolicyIteration = pickle.load(f)
 
 plot_3D_value_function(vf = pi.value_function,

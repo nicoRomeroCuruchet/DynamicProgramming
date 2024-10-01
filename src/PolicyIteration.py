@@ -1,12 +1,11 @@
 import os
 import pickle
+import numpy as np
 import gymnasium as gym
 from loguru import logger
 from scipy.spatial import Delaunay
 from utils.utils import plot_3D_value_function
 
-
-import numpy as np
 try:
 
     import cupy as cp 
@@ -15,8 +14,7 @@ try:
     logger.info("CUDA driver is available.")
 
 except (ImportError, AttributeError):
-
-    import numpy as cp
+    cp = np
     logger.warning("CUDA is not available. Falling back to NumPy.")
     def asarray(arr, *args, **kwargs):
         """In NumPy, this just ensures the object is a NumPy array, with support for additional arguments."""
@@ -28,7 +26,7 @@ except (ImportError, AttributeError):
            
     np.asarray = asarray
     np.asnumpy = asnumpy
-    cp = np
+    
 
 
 class PolicyIteration(object):
@@ -224,13 +222,18 @@ class PolicyIteration(object):
             "points_indexes": The indexes of the points in the simplex. """   
            
         for j, action in enumerate(self.action_space):
-            self.env.state = cp.asarray(self.states_space, dtype=cp.float32)   
+            self.env.reset()
+            #self.env.state = cp.asarray(self.states_space, dtype=cp.float32) 
+            state = np.array(self.states_space, dtype=np.float32)
+            self.env.airplane.flight_path_angle = state[:,0].copy()
+            self.env.airplane.airspeed_norm = state[:,1].copy()    
+
             obs_gpu, reward_gpu, _, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
             states_outside_gpu = self.__in_cell__(obs_gpu)
             if bool(cp.any(~states_outside_gpu)):
                 # get the indexes of the states outside the bounds 
-                reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
+                # reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
