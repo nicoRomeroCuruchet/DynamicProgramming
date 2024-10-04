@@ -228,13 +228,14 @@ class PolicyIteration(object):
             self.env.airplane.flight_path_angle = state[:,0].copy()
             self.env.airplane.airspeed_norm = state[:,1].copy()    
 
-            obs_gpu, reward_gpu, _, _, _ = self.env.step(action)
+            obs_gpu, reward_gpu, terminated, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
             states_outside_gpu = self.__in_cell__(obs_gpu)
             if bool(cp.any(~states_outside_gpu)):
                 # get the indexes of the states outside the bounds 
                 #reward_gpu = cp.where(states_outside_gpu, reward_gpu, -1)
                 logger.warning(f"Some states are outside the bounds of the environment.")
+            reward_gpu = cp.where(terminated, 0, reward_gpu)
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
             # get the barycentric coordinates of the resulting state in CPU for now.

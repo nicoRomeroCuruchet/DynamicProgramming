@@ -45,16 +45,21 @@ class ReducedSymmetricGliderPullout(AirplaneEnv):
         # Update state
         c_lift = action #action[0]
 
+        terminated = self.termination()
+
         self.airplane.command_airplane(c_lift, 0, 0)
 
         # Calculate step reward: Height Loss
         reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle)
-        terminated = self.termination()
+        
         observation = self._get_obs()
         info = self._get_info()
         return observation, reward, terminated, False, info
 
 
     def termination(self,):
-        terminate =  np.where( ((self.airplane.flight_path_angle >= 0.0) | (self.airplane.flight_path_angle <= -np.pi)), True, False)
+        #terminate =  np.where( (((self.airplane.flight_path_angle >= 0.0) | (self.airplane.flight_path_angle <= -np.pi)) & (self.airplane.airspeed_norm >= 1) ), True, False)
+        terminate =  np.where((self.airplane.flight_path_angle >= 0.0) & (self.airplane.airspeed_norm >= 1) , True, False)
+
         return terminate
+        #return (self.airplane.flight_path_angle >= 0.0) and (self.airplane.airspeed_norm >= 1)
