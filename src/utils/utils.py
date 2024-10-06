@@ -27,8 +27,8 @@ def plot_3D_value_function(vf: np.array,
     ax.set_xlabel('Flight Path Angle (γ) [deg]', labelpad=10)
     ax.set_ylabel('V/Vs', labelpad=10)
     ax.set_zlabel('Normalized Value Function', labelpad=10)
-    ax.set_xticks(np.linspace(min(X), max(X), 8))  # 5 ticks on the x-axis
-    ax.set_yticks(np.linspace(min(Y), max(Y), 8))  # 5 ticks on the y-axis
+    ax.set_xticks(np.round(np.linspace(min(X), max(X), 5)))  # 5 ticks on the x-axis
+    ax.set_yticks(np.round(np.linspace(min(Y), max(Y), 5)))  # 5 ticks on the y-axis
     # Add color bar to represent the value range
     if path is not None: plt.savefig(path)
     # Show the plot

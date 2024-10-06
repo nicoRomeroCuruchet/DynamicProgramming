@@ -122,6 +122,10 @@ class PolicyIteration(object):
         self.grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
         # Flatten and stack to create a list of points in the space
         self.states_space = np.vstack([g.ravel() for g in self.grid], dtype=np.float32).T
+        # get x and y coordinates
+        x = self.states_space[:,0]
+        y = self.states_space[:,1]
+        self.terminals_states = np.where((x >= 0.0) & (y >= 1) , True, False)
         # 
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
@@ -229,12 +233,13 @@ class PolicyIteration(object):
             self.env.airplane.airspeed_norm = state[:,1].copy()    
 
             obs_gpu, reward_gpu, terminated, _, _ = self.env.step(action)
+
             # log if any state is outside the bounds of the environment
             states_outside_gpu = self.__in_cell__(obs_gpu)
             if bool(cp.any(~states_outside_gpu)):
                 # get the indexes of the states outside the bounds 
-                #reward_gpu = cp.where(states_outside_gpu, reward_gpu, -1)
                 logger.warning(f"Some states are outside the bounds of the environment.")
+            # if the state is terminal, set the reward to zero
             reward_gpu = cp.where(terminated, 0, reward_gpu)
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
@@ -248,6 +253,7 @@ class PolicyIteration(object):
             self.lambdas[:,j]        = cp.asarray(lambdas, dtype=cp.float32)
             self.simplexes[:,j]      = cp.asarray(simplexes, dtype=cp.float32)
             self.points_indexes[:,j] = cp.asarray(points_indexes, dtype=cp.int32) 
+            
 
     def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
 
@@ -289,6 +295,8 @@ class PolicyIteration(object):
             for j, _ in enumerate(self.action_space):                
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
                 next_state_value = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
+                # if terminal put zero
+                next_state_value = cp.where(self.terminals_states, 0, next_state_value)
                 new_val += self.policy[:,j] * (self.reward[:,j] + self.gamma * next_state_value)
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions

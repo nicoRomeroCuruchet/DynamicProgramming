@@ -8,7 +8,7 @@ from PolicyIteration import PolicyIteration
 glider = gym.make('ReducedSymmetricGliderPullout-v0')
 
 bins_space = {
-    "flight_path_angle": np.linspace(-np.pi, 0.00, 100,      dtype=np.float32),    # Flight Path Angle (γ)    (0)
+    "flight_path_angle": np.linspace(-np.pi, 0.0, 100,      dtype=np.float32),    # Flight Path Angle (γ)    (0)
     "airspeed_norm":     np.linspace(0.7, 4,       100,      dtype=np.float32),    # Air Speed         (V)    (1)
 }
 
