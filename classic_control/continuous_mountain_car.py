@@ -161,6 +161,8 @@ class Continuous_MountainCarEnv(gym.Env):
         position = self.state[:,0]  # avoid modifying the original grid
         velocity = self.state[:,1]  # avoid modifying the original grid
 
+        init_terminate = cp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
+
         force     = min(max(action, self.min_action), self.max_action)
         velocity += force * self.power - 0.0025 * cp.cos(3 * position)
         velocity  = cp.clip(velocity, -self.max_speed, self.max_speed)
@@ -172,8 +174,12 @@ class Continuous_MountainCarEnv(gym.Env):
         terminated = cp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
 
         reward  = cp.zeros_like(terminated, dtype=cp.float32)
-        reward  = cp.where(terminated, 100.0, reward)
+        #reward  = cp.where(terminated, 100.0, reward)
+
+        # update with cp.power(action, 2) * 0.1 only init_terminate false:
         reward -= cp.power(action, 2) * 0.1
+
+        reward  = cp.where(init_terminate, 100.0, reward)
 
         return cp.vstack([position, velocity]).T, reward, terminated, False, {}
 

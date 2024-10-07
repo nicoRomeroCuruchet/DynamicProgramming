@@ -124,6 +124,10 @@ class PolicyIteration(object):
         self.grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
         # Flatten and stack to create a list of points in the space
         self.states_space = np.vstack([g.ravel() for g in self.grid], dtype=np.float32).T
+        x = self.states_space[:,0]
+        y = self.states_space[:,1]
+        self.terminal_states = cp.where((x >= self.env.goal_position) & (y >= self.env.goal_velocity), True, False)
+
         # 
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
@@ -143,9 +147,14 @@ class PolicyIteration(object):
         self.lambdas        = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.float32)
         self.points_indexes = cp.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=cp.int32)
         # The policy is a mapping from states to probabilities of selecting each action
-        self.policy = cp.ones((self.num_states, self.num_actions), dtype=cp.float32) / self.num_actions
+        self.policy = cp.zeros((self.num_states, self.num_actions), dtype=cp.float32) / self.num_actions
+        # initialize the policy with random 1 each row
+        for i in range(self.num_states):
+            self.policy[i,np.random.randint(0,self.num_actions)] = 1
+
         # The value function is an estimate of the expected return from a given state
         self.value_function = cp.zeros(self.num_states, dtype=cp.float32)
+        self.value_function[self.terminal_states] = 100
         logger.info("Policy Iteration was correctly initialized.")
         logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
         
@@ -224,13 +233,13 @@ class PolicyIteration(object):
             "points_indexes": The indexes of the points in the simplex. """   
            
         for j, action in enumerate(self.action_space):
-            self.env.state = cp.asarray(self.states_space, dtype=cp.float32)   
+            self.env.state = cp.asarray(self.states_space, dtype=cp.float32)  
             obs_gpu, reward_gpu, _, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
             states_outside_gpu = self.__in_cell__(obs_gpu)
             if bool(cp.any(~states_outside_gpu)):
                 # get the indexes of the states outside the bounds 
-                reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
+                # reward_gpu = cp.where(states_outside_gpu, reward_gpu, -100)
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
@@ -280,16 +289,22 @@ class PolicyIteration(object):
         logger.info("Starting policy evaluation")
         while cp.abs(float(max_error)) > self.theta:
             # initialize the new value function to zeros
-            new_value_function = cp.zeros_like(self.value_function, dtype=cp.float32) 
+            new_value_function = cp.zeros_like(self.value_function, dtype=cp.float32)
+            vf_next_state = cp.zeros_like(self.value_function, dtype=cp.float32)
             new_val = cp.zeros_like(self.value_function, dtype=cp.float32)
+            new_value_function[self.terminal_states] = 100
+            new_val[self.terminal_states] = 100
+
             for j, _ in enumerate(self.action_space):                
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
-                next_state_value = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
-                new_val += self.policy[:,j] * (self.reward[:,j] + self.gamma * next_state_value)
+                vf_next_state[~self.terminal_states] = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)[~self.terminal_states]
+                new_val[~self.terminal_states] += self.policy[~self.terminal_states,j] * (self.reward[~self.terminal_states,j] + self.gamma * vf_next_state[~self.terminal_states])
+
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
             errors = cp.fabs(new_value_function[:] - self.value_function[:])
             self.value_function = new_value_function  # update the value function
+
             # log the progress
             if ii % 150 == 0:
                 mean      = cp.round(cp.mean(errors), 3)
