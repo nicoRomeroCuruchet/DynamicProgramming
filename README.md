@@ -1,6 +1,6 @@
 # Policy Iteration for Continuous Dynamics
 
-This repository contains an implementation of **Policy Iteration (PI)** applied to environments with continuous dynamics.  The **Value Function (VF)** is approximated using linear interpolation within each **simplex** of the discretized state space. The interpolation coefficients act like probabilities in a stochastic process, which helps in approximating the continuous dynamics using a discrete **Markov Decision Process (MDP)**. This algorithm it was tested by the environments Cartpole and Mountain car provided by [Gymnasium](https://github.com/Farama-Foundation/Gymnasium).
+This repository contains an implementation of **Policy Iteration (PI)** [1] applied to environments with continuous dynamics.  The **Value Function (VF)** is approximated using linear interpolation within each **simplex** of the discretized state space. The interpolation coefficients act like probabilities in a stochastic process, which helps in approximating the continuous dynamics using a discrete **Markov Decision Process (MDP)**. This algorithm it was tested by the environments Cartpole and Mountain car provided by [Gymnasium](https://github.com/Farama-Foundation/Gymnasium).
 
 
 <p align="center">
@@ -78,9 +78,13 @@ Here:
 
  
 # References
-- [1] R. Munos and A. Moore, "Barycentric interpolators for continuous space & time reinforcement learning" Robotics Institute, Carnegie Mellon University, Pittsburgh, PA, 1998.
 
-- [2] R. Munos and A. Moore, "Variable resolution discretization in optimal control" Machine Learning, vol. 49, pp. 291–323, 2002.
+- [1] Richard S. Sutton and Andrew G. Barto, "Reinforcement Learning:
+An Introduction, Second edition". pag. 97
 
-- [3] Rémis Munos, "A Study of Reinforcement Learning in the Continuous Case by the Means of Viscosity Solutions" Machine Learning, 40, 265–299, 2000.
+- [2] R. Munos and A. Moore, "Barycentric interpolators for continuous space & time reinforcement learning" Robotics Institute, Carnegie Mellon University, Pittsburgh, PA, 1998.
+
+- [3] R. Munos and A. Moore, "Variable resolution discretization in optimal control" Machine Learning, vol. 49, pp. 291–323, 2002.
+
+- [4] Rémis Munos, "A Study of Reinforcement Learning in the Continuous Case by the Means of Viscosity Solutions" Machine Learning, 40, 265–299, 2000.
 

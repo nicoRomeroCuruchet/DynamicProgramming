@@ -9,27 +9,27 @@ and then modified by Arnaud de Broissia
 
 * the gymnasium MountainCar environment
 itself from
-http://incompleteideas.net/sutton/MountainCar/MountainCar1.cp
+http://incompleteideas.net/sutton/MountainCar/MountainCar1.xp
 permalink: https://perma.cc/6Z2N-PFWC
 """
 
 import math
 from typing import Optional
 
-
+import numpy as xp
 
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.classic_control import utils
 from gymnasium.error import DependencyNotInstalled
 
-import numpy as np
+
 try:
-    import cupy as cp 
-    if not cp.cuda.is_available():
+    import cupy as xp 
+    if not xp.cuda.is_available():
         raise ImportError("CUDA is not available. Falling back to NumPy.")
 except (ImportError, AttributeError):
-    cp = np
+    xp = xp
 
 
 class Continuous_MountainCarEnv(gym.Env):
@@ -134,11 +134,11 @@ class Continuous_MountainCarEnv(gym.Env):
         self.goal_velocity = goal_velocity
         self.power = .0008 #0.0015
 
-        self.low_state = np.array(
-            [self.min_position, -self.max_speed], dtype=np.float32
+        self.low_state = xp.array(
+            [self.min_position, -self.max_speed], dtype=xp.float32
         )
-        self.high_state = np.array(
-            [self.max_position, self.max_speed], dtype=np.float32
+        self.high_state = xp.array(
+            [self.max_position, self.max_speed], dtype=xp.float32
         )
 
         self.render_mode = render_mode
@@ -150,40 +150,37 @@ class Continuous_MountainCarEnv(gym.Env):
         self.isopen = True
 
         self.action_space = spaces.Box(
-            low=self.min_action, high=self.max_action, shape=(1,), dtype=np.float32
+            low=self.min_action, high=self.max_action, shape=(1,), dtype=xp.float32
         )
         self.observation_space = spaces.Box(
-            low=self.low_state, high=self.high_state, dtype=np.float32
+            low=self.low_state, high=self.high_state, dtype=xp.float32
         )
 
     def step(self, action:float)->tuple:
 
-        position = self.state[:,0]  # avoid modifying the original grid
-        velocity = self.state[:,1]  # avoid modifying the original grid
-
-        init_terminate = cp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
-
+        position = self.state[:,0]  
+        velocity = self.state[:,1]
+        
         force     = min(max(action, self.min_action), self.max_action)
-        velocity += force * self.power - 0.0025 * cp.cos(3 * position)
-        velocity  = cp.clip(velocity, -self.max_speed, self.max_speed)
+        velocity += force * self.power - 0.0025 * xp.cos(3 * position)
+        velocity  = xp.clip(velocity, -self.max_speed, self.max_speed)
 
         position += velocity
-        position  = cp.clip(position, self.min_position, self.max_position)
+        position  = xp.clip(position, self.min_position, self.max_position)
 
-        velocity   = cp.where((position == self.min_position) & (velocity < 0), 0, velocity)
-        terminated = cp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
+        velocity   = xp.where((position == self.min_position)  & (velocity < 0), 0, velocity)
+        terminated = xp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
+        reward  = xp.zeros_like(terminated, dtype=xp.float32)
+        
+        reward -= xp.power(action, 2) * 0.1
+        return xp.vstack([position, velocity]).T, reward, terminated, False, {}
+    
+    def terminal(self, state:xp.ndarray)->xp.ndarray:
+        position = state[:,0]
+        velocity = state[:,1]
+        return xp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False), 100.0
 
-        reward  = cp.zeros_like(terminated, dtype=cp.float32)
-        #reward  = cp.where(terminated, 100.0, reward)
-
-        # update with cp.power(action, 2) * 0.1 only init_terminate false:
-        reward -= cp.power(action, 2) * 0.1
-
-        reward  = cp.where(init_terminate, 100.0, reward)
-
-        return cp.vstack([position, velocity]).T, reward, terminated, False, {}
-
-    def step_to_render(self, action: np.ndarray):
+    def step_to_render(self, action: xp.ndarray):
         position = self.state[0]
         velocity = self.state[1]
         force = min(max(action, self.min_action), self.max_action)
@@ -211,7 +208,7 @@ class Continuous_MountainCarEnv(gym.Env):
             reward = 100.0
         reward -= math.pow(action, 2) * 0.1
 
-        self.state = np.array([position, velocity], dtype=np.float32)
+        self.state = xp.array([position, velocity], dtype=xp.float32)
 
         if self.render_mode == "human":
             self.render()
@@ -223,14 +220,14 @@ class Continuous_MountainCarEnv(gym.Env):
         # Note that if you use custom reset bounds, it may lead to out-of-bound
         # state/observations.
         low, high = utils.maybe_parse_reset_bounds(options, -0.6, -0.4)
-        self.state = np.array([self.np_random.uniform(low=low, high=high), 0])
+        self.state = xp.array([self.np_random.uniform(low=low, high=high), 0])
 
         if self.render_mode == "human":
             self.render()
-        return np.array(self.state, dtype=np.float32), {}
+        return xp.array(self.state, dtype=xp.float32), {}
 
     def _height(self, xs):
-        return np.sin(3 * xs) * 0.45 + 0.55
+        return xp.sin(3 * xs) * 0.45 + 0.55
 
     def render(self):
         if self.render_mode is None:
@@ -272,7 +269,7 @@ class Continuous_MountainCarEnv(gym.Env):
 
         pos = self.state[0]
 
-        xs = np.linspace(self.min_position, self.max_position, 100)
+        xs = xp.linspace(self.min_position, self.max_position, 100)
         ys = self._height(xs)
         xys = list(zip((xs - self.min_position) * scale, ys * scale))
 
@@ -332,8 +329,8 @@ class Continuous_MountainCarEnv(gym.Env):
             pygame.display.flip()
 
         elif self.render_mode == "rgb_array":
-            return np.transpose(
-                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
+            return xp.transpose(
+                xp.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )
 
     def close(self):

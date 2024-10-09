@@ -134,7 +134,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.total_mass = self.masspole + self.masscart
         self.length = 0.5  # actually half the pole's length
         self.polemass_length = self.masspole * self.length
-        self.force_mag = 10.0
+        self.force_mag = 15.0
         self.tau = 0.02  # seconds between state updates
         self.kinematics_integrator = "euler"
 
@@ -195,15 +195,26 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             theta_dot = theta_dot + self.tau * thetaacc
             theta = theta + self.tau * theta_dot
 
-        self.state = cp.vstack([x, x_dot, theta, theta_dot]).T
+        
         terminated = cp.where((x < -self.x_threshold) | 
                               (x >  self.x_threshold) | 
                               (theta < -self.theta_threshold_radians) | 
                               (theta > self.theta_threshold_radians), True, False)
         
+
+        self.state = cp.vstack([x, x_dot, theta, theta_dot]).T
+        
         reward = cp.zeros_like(terminated, dtype=cp.float32)
-        reward = cp.where(terminated, -1, 0)
+        reward[~terminated] = 1.0
         return cp.array(self.state, dtype=cp.float32), reward, terminated, False, {}
+    
+    def terminal(self, states: cp.ndarray) -> cp.ndarray:
+
+        x, theta = states[:,0], states[:,2]
+        return cp.where((x < -self.x_threshold) | 
+                        (x >  self.x_threshold) | 
+                        (theta < -self.theta_threshold_radians) | 
+                        (theta > self.theta_threshold_radians), True, False), -100.0
     
     def step_to_render(self, action):
         assert self.action_space.contains(

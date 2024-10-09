@@ -14,11 +14,12 @@ bins_space = {
 pi = PolicyIteration(
     env=env, 
     bins_space=bins_space,
-    action_space=np.linspace(-1.0, +1.0,10, dtype=np.float32),
+    action_space=np.linspace(-1.0, +1.0, 2, dtype=np.float32),
     gamma=0.99,
     theta=1e-3,
 )
-#pi.run()
+
+pi.run()
 
 with open(env.__class__.__name__ + ".pkl", "rb") as f:
     pi: PolicyIteration = pickle.load(f)
