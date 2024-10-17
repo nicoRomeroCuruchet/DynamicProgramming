@@ -122,10 +122,12 @@ class PolicyIteration(object):
         self.grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
         # Flatten and stack to create a list of points in the space
         self.states_space = np.vstack([g.ravel() for g in self.grid], dtype=np.float32).T
+        
         # get x and y coordinates
         x = self.states_space[:,0]
         y = self.states_space[:,1]
-        self.terminals_states = np.where((x >= 0.0) & (y >= 1) , True, False)
+        self.terminal_states = np.where((x >= 0.0) & (y >= 1) , True, False)
+        self.terminal_reward = 0
         # 
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
@@ -290,14 +292,17 @@ class PolicyIteration(object):
         logger.info("Starting policy evaluation")
         while cp.abs(float(max_error)) > self.theta:
             # initialize the new value function to zeros
-            new_value_function = cp.zeros_like(self.value_function, dtype=cp.float32) 
+            new_value_function = cp.zeros_like(self.value_function, dtype=cp.float32)
+            vf_next_state = cp.zeros_like(self.value_function, dtype=cp.float32)
             new_val = cp.zeros_like(self.value_function, dtype=cp.float32)
+            new_value_function[self.terminal_states] = self.terminal_reward
+            new_val[self.terminal_states] = self.terminal_reward
+
             for j, _ in enumerate(self.action_space):                
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
-                next_state_value = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
-                # if terminal put zero
-                next_state_value = cp.where(self.terminals_states, 0, next_state_value)
-                new_val += self.policy[:,j] * (self.reward[:,j] + self.gamma * next_state_value)
+                vf_next_state[~self.terminal_states] = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)[~self.terminal_states]
+                new_val[~self.terminal_states] += self.policy[~self.terminal_states,j] * (self.reward[~self.terminal_states,j] + self.gamma * vf_next_state[~self.terminal_states])
+
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
             errors = cp.fabs(new_value_function[:] - self.value_function[:])

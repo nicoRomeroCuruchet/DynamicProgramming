@@ -77,7 +77,7 @@ class ReducedSymmetricGliderPullout(AirplaneEnv):
         self.airplane.airspeed_norm = np.clip(self.airplane.airspeed_norm, self.observation_space.low[1], self.observation_space.high[1])
         self.airplane.flight_path_angle = np.clip(self.airplane.flight_path_angle, self.observation_space.low[0], self.observation_space.high[0])
         # Calculate step reward: Height Loss
-        reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle)
+        reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle)*27.331231856346
         
         # Get the next state
         info = self._get_info()

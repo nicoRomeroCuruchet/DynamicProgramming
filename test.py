@@ -28,6 +28,6 @@ with open(glider.__class__.__name__ + ".pkl", "rb") as f:
 
 plot_3D_value_function(vf = pi.value_function,
                        points = pi.states_space,
-                       normalize=True,
+                       normalize=False,
                        show=True,
                        path="./test_vf.png")
