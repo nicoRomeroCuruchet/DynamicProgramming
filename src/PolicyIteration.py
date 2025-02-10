@@ -30,8 +30,8 @@ except (ImportError, AttributeError):
 
 
 class PolicyIteration(object):
-    """
-    A class to perform Policy Iteration on discretized continuous environments.
+    
+    """A class to perform Policy Iteration on discretized continuous environments.
 
     Attributes:
         env (gym.Env): The Gym environment to work with.
@@ -49,19 +49,29 @@ class PolicyIteration(object):
 
         Example:
 
-            from classic_control.cartpole import CartPoleEnv 
-            
-            env = CartPoleEnv()
-            bins_space = {
-                "x_space": np.linspace(-x_lim, x_lim, 12), # position space (0)
-                "x_dot_space": np.linspace(-x_dot_lim, x_dot_lim, 12), # velocity space (1)
-                "theta_space": np.linspace(-theta_lim, theta_lim, 12), # angle space (2)
-                "theta_dot_space": np.linspace(-theta_dot_lim, theta_dot_lim, 12), # angular velocity space (3)
-            }
-            action_space = [0, 1]
-            pi = PolicyIteration(env, bins_space, action_space)
-            pi.run()
-    """
+        import pickle
+        import airplane
+        import numpy as np
+        import gymnasium as gym
+        from utils.utils import test_enviroment
+        from PolicyIteration import PolicyIteration
+
+        glider = gym.make('ReducedSymmetricGliderPullout-v0')
+
+        bins_space = {
+            "flight_path_angle": np.linspace(-np.pi, 0.5,    100,      dtype=np.float32),     # Flight Path Angle (γ)    (0)
+            "airspeed_norm":     np.linspace(0.7, 4.0,       100,      dtype=np.float32),     # Air Speed         (V)    (1)
+        }
+
+        pi = PolicyIteration(
+            env=glider, 
+            bins_space=bins_space,
+            action_space=np.linspace(-0.4, 1.0, 15, dtype=np.float32),
+            gamma=0.99,
+            theta=1e-3,
+        )
+
+        pi.run() """
 
     metadata = {"img_path": os.getcwd()+"/img/",}
 
@@ -259,15 +269,26 @@ class PolicyIteration(object):
 
     def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
 
-        """ Calculates the next state value based on the given lambdas, point indexes, and value function.
+        """
+        Compute the next state value using barycentric coordinates.
+
+        This function extracts values from the given value_function at indices specified by
+        point_indexes and then computes the weighted sum using the provided barycentric coordinates (lambdas).
+        It returns a one-dimensional array containing the computed value for each state.
+
         Args:
-            lambdas (cp.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
-            point_indexes (cp.ndarray): The point indexes array of shape (num_states, num_simplex_points,1).
-            value_function (cp.ndarray): The value function.
+            lambdas (cp.ndarray): A CuPy array of barycentric coordinates with shape 
+                (num_states, num_simplex_points, 1).
+            point_indexes (cp.ndarray): A CuPy array of simplex vertex indices with shape 
+                (num_states, num_simplex_points, 1) used to index into the value_function.
+            value_function (cp.ndarray): A CuPy array containing the current state values.
+
         Returns:
-            cp.ndarray: The next state value.
+            cp.ndarray: A one-dimensional CuPy array of computed next state values (shape (num_states,)).
+
         Raises:
-            Exception: If states in point_indexes are not found in the value function. """
+            Exception: If any of the indices in point_indexes are not valid for the given value_function.
+        """
         
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
