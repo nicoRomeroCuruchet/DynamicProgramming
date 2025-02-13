@@ -269,8 +269,7 @@ class PolicyIteration(object):
 
     def get_value(self, lambdas:cp.ndarray,  point_indexes:cp.ndarray,  value_function:cp.ndarray)->cp.ndarray:
 
-        """
-        Compute the next state value using barycentric coordinates.
+        """ Compute the next state value using barycentric coordinates.
 
         This function extracts values from the given value_function at indices specified by
         point_indexes and then computes the weighted sum using the provided barycentric coordinates (lambdas).
@@ -287,8 +286,7 @@ class PolicyIteration(object):
             cp.ndarray: A one-dimensional CuPy array of computed next state values (shape (num_states,)).
 
         Raises:
-            Exception: If any of the indices in point_indexes are not valid for the given value_function.
-        """
+            Exception: If any of the indices in point_indexes are not valid for the given value_function. """
         
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
