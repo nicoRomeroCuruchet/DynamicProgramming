@@ -145,7 +145,7 @@ class PolicyIteration(object):
         self.num_states:int         = int(self.states_space.shape[0])
         self.num_actions:int        = int(self.action_space.shape[0])
 
-        logger.info(f"The action space is: {self.action_space}")
+        #logger.info(f"The action space is: {self.action_space}")
         logger.info(f"Number of states: {len(self.states_space)}")
         logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
     
