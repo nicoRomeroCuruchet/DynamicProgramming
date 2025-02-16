@@ -174,6 +174,7 @@ class PolicyIteration(object):
         Returns:
             np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
         
+        #return cp.all((obs >= self.cell_lower_bounds[:, None]) & (obs <= self.cell_upper_bounds[:, None]), axis=1)
         return cp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
     def barycentric_coordinates(self, points:np.ndarray)->tuple:
@@ -242,7 +243,8 @@ class PolicyIteration(object):
             #self.env.state = cp.asarray(self.states_space, dtype=cp.float32) 
             state = np.array(self.states_space, dtype=np.float32)
             self.env.airplane.flight_path_angle = state[:,0].copy()
-            self.env.airplane.airspeed_norm = state[:,1].copy()    
+            self.env.airplane.airspeed_norm = state[:,1].copy()
+            self.env.airplane.bank_angle = state[:,2].copy()    
 
             obs_gpu, reward_gpu, terminated, _, _ = self.env.step(action)
 

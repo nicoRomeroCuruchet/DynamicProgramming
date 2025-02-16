@@ -11,7 +11,7 @@ class Grumman:
         ######################
         ### Sim parameters ###
         ######################
-        self.TIME_STEP = 0.1
+        self.TIME_STEP = 0.01
         self.GRAVITY = 9.81
         self.AIR_DENSITY = 1.225  # Density  (ρ)  [kg/m3]
 
