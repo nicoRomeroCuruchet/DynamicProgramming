@@ -13,8 +13,18 @@ class ReducedBankedGliderPullout(AirplaneEnv):
         self.airplane = ReducedGrumman()
         super().__init__(self.airplane)
 
+        """  bins_space = {
+            "flight_path_angle": np.linspace(np.deg2rad(-90), np.deg2rad(0),    20,      dtype=np.float32),     # Flight Path Angle (γ)    (0)
+            "airspeed_norm":     np.linspace(0.7, 4.0,                          20,      dtype=np.float32),    # Air Speed         (V)    (1)
+            "bank_angle":        np.linspace( np.deg2rad(-20), np.deg2rad(200), 20,      dtype=np.float32),    # Bank Angle        (mu)   (2)
+        }
+        
+        action_space= np.array(np.meshgrid(np.linspace(-0.5, 1.0, 5, dtype=np.float32), 
+                                   np.linspace(np.deg2rad(-30), np.deg2rad(30), 5, dtype=np.float32))).T.reshape(-1, 2)
+        """
+
         # Observation space: Flight Path Angle (γ), Air Speed (V), Bank Angle (μ)
-        self.observation_space = spaces.Box(np.array([-np.pi, 0.9, np.deg2rad(-20)], np.float32), np.array([0, 4.0, np.deg2rad(200)], np.float32), shape=(3,), dtype=np.float32) 
+        self.observation_space = spaces.Box(np.array([np.deg2rad(-90), 0.7, np.deg2rad(-20)], np.float32), np.array([np.deg2rad(0), 4.0, np.deg2rad(200)], np.float32), shape=(3,), dtype=np.float32) 
         # Action space: Lift Coefficient (CL), Bank Rate (μ')
         self.action_space = spaces.Box(np.array([-0.5, np.deg2rad(-30)], np.float32), np.array([1.0, np.deg2rad(30)], np.float32), shape=(2,), dtype=np.float32) 
 
