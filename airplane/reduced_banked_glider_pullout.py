@@ -39,6 +39,7 @@ class ReducedBankedGliderPullout(AirplaneEnv):
         action = np.clip(action, self.action_space.low, self.action_space.high)
         c_lift = action[0]
         bank_rate = action[1]
+        init_terminal = self.termination()
 
         self.airplane.command_airplane(c_lift, bank_rate, 0)
 
@@ -49,6 +50,8 @@ class ReducedBankedGliderPullout(AirplaneEnv):
         terminated = self.termination()
         observation = self._get_obs()
         info = self._get_info()
+        terminated = self.termination() | init_terminal
+        reward = np.where(init_terminal, 0, reward)
         return observation, reward, terminated, False, info
 
 
