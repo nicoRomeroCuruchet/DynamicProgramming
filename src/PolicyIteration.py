@@ -254,7 +254,7 @@ class PolicyIteration(object):
                 # get the indexes of the states outside the bounds 
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if the state is terminal, set the reward to zero
-            reward_gpu = cp.where(terminated, 0, reward_gpu)
+            #reward_gpu = cp.where(terminated, 0, reward_gpu)
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = cp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
             # get the barycentric coordinates of the resulting state in CPU for now.

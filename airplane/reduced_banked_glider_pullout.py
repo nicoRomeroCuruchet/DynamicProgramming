@@ -55,8 +55,8 @@ class ReducedBankedGliderPullout(AirplaneEnv):
 
         # Calculate step reward: Height Loss
         # TODO: Analyze policy performance based on reward implementation.
-        reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle)
-        # reward = self.TIME_STEP * (self.airspeed_norm * self.STALL_AIRSPEED) * np.sin(self.Flight Path) - 0.01 * bank_rate ** 2
+        reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle) - 1e-3 * bank_rate ** 2
+        #reward = self.airplane.TIME_STEP * (self.airspeed_norm * self.STALL_AIRSPEED) *  np.sin(self.airplane.flight_path_angle) 
         terminated = self.termination()
         observation = self._get_obs()
         info = self._get_info()
@@ -66,5 +66,5 @@ class ReducedBankedGliderPullout(AirplaneEnv):
 
 
     def termination(self,):
-        terminate =  np.where((self.airplane.flight_path_angle >= 0.0) & (self.airplane.airspeed_norm >= 1) , True, False)
+        terminate =  np.where((np.abs(self.airplane.flight_path_angle) < 1e-3) & (self.airplane.airspeed_norm >= 1) , True, False)
         return terminate

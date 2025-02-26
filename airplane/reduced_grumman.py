@@ -35,7 +35,7 @@ class ReducedGrumman(Grumman):
         airspeed_dot = - self.GRAVITY * np.sin(self.flight_path_angle) - 0.5 * self.AIR_DENSITY * (
                 self.WING_SURFACE_AREA / self.MASS) * (self.airspeed_norm * self.STALL_AIRSPEED) ** 2 * c_drag \
                        + (self.THROTTLE_LINEAR_MAPPING * delta_throttle / self.MASS)
-
+        
         # γ_dot = 0.5 * (ρ S V CL cos µ / m) - g cos γ / V
         flight_path_angle_dot = 0.5 * self.AIR_DENSITY * (self.WING_SURFACE_AREA / self.MASS) * (
                 self.airspeed_norm * self.STALL_AIRSPEED) * c_lift * np.cos(self.bank_angle) \
