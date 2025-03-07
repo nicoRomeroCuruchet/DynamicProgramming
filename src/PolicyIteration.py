@@ -3,7 +3,9 @@ import pickle
 import numpy as np
 import gymnasium as gym
 from loguru import logger
+
 from scipy.spatial import Delaunay
+from functools import cached_property
 from utils.utils import plot_3D_value_function
 
 try:

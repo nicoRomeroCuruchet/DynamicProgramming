@@ -24,7 +24,8 @@ class ReducedBankedGliderPullout(AirplaneEnv):
         """
 
         # Observation space: Flight Path Angle (γ), Air Speed (V), Bank Angle (μ)
-        self.observation_space = spaces.Box(np.array([np.deg2rad(-90), 0.7, np.deg2rad(-20)], np.float32), np.array([np.deg2rad(0), 4.0, np.deg2rad(200)], np.float32), shape=(3,), dtype=np.float32) 
+        self.observation_space = spaces.Box(np.array([np.deg2rad(-180), 0.7, np.deg2rad(-20)], np.float32), 
+                                            np.array([np.deg2rad(0), 4.0, np.deg2rad(200)], np.float32), shape=(3,), dtype=np.float32) 
         # Action space: Lift Coefficient (CL), Bank Rate (μ')
         self.action_space = spaces.Box(np.array([-0.5, np.deg2rad(-30)], np.float32), np.array([1.0, np.deg2rad(30)], np.float32), shape=(2,), dtype=np.float32) 
 
@@ -55,7 +56,7 @@ class ReducedBankedGliderPullout(AirplaneEnv):
 
         # Calculate step reward: Height Loss
         # TODO: Analyze policy performance based on reward implementation.
-        reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle) - 1e-3 * bank_rate ** 2
+        reward = self.airplane.TIME_STEP * self.airplane.airspeed_norm * np.sin(self.airplane.flight_path_angle) #- 1e-3 * bank_rate ** 2
         #reward = self.airplane.TIME_STEP * (self.airspeed_norm * self.STALL_AIRSPEED) *  np.sin(self.airplane.flight_path_angle) 
         terminated = self.termination()
         observation = self._get_obs()
@@ -66,5 +67,5 @@ class ReducedBankedGliderPullout(AirplaneEnv):
 
 
     def termination(self,):
-        terminate =  np.where((np.abs(self.airplane.flight_path_angle) < 1e-3) & (self.airplane.airspeed_norm >= 1) , True, False)
+        terminate = np.where(((self.airplane.flight_path_angle>=0) | (self.airplane.flight_path_angle<=-180)) & (self.airplane.airspeed_norm >= 1) , True, False)
         return terminate
