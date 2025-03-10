@@ -6,7 +6,8 @@ from scipy.spatial import Delaunay
 from utils.utils import plot_3D_value_function
 
 
-import numpy as xp
+import numpy as np
+
 try:
 
     import cupy as xp 
@@ -165,7 +166,7 @@ class PolicyIteration(object):
         
         return xp.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
   
-    def barycentric_coordinates(self, points:xp.ndarray)->tuple:
+    def barycentric_coordinates(self, points:np.ndarray)->tuple:
 
         """ Calculates the barycentric coordinates of a 2D point within a convex hull.
         Parameters:
@@ -181,23 +182,24 @@ class PolicyIteration(object):
         # transform the points to a 3D space
         simplex_indexes = self.triangulation.find_simplex(points)
         # check if the point is outside the convex hull
-        if xp.any(simplex_indexes == -1):
-            raise ValueError(f"The point {xp.where(simplex_indexes == -1)[0]} is outside the convex hull.")
+        if np.any(simplex_indexes == -1):
+            raise ValueError(f"The point {np.where(simplex_indexes == -1)[0]} is outside the convex hull.")
         
         points_indexes = self.triangulation.simplices[simplex_indexes]
         # get the simplexes
         simplexes = self.states_space[points_indexes]
+        simplexes = simplexes.get()
         # Transpose the matrices in one go
         transposed_simplexes = simplexes.transpose(0, 2, 1)
         # Create the row of ones to be added, matching the shape (number of matrices, 1 row, number of columns)
-        ones_row = xp.ones((transposed_simplexes.shape[0], 1, transposed_simplexes.shape[2]))
+        ones_row = np.ones((transposed_simplexes.shape[0], 1, transposed_simplexes.shape[2]))
         # Stack the transposed matrices with the row of ones along the second axis
-        A = xp.concatenate((transposed_simplexes, ones_row), axis=1)
-        b = xp.hstack([points,  xp.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
-        # Calculate the inverse of the resulting matrix
+        A = np.concatenate((transposed_simplexes, ones_row), axis=1)
+        b = np.hstack([points, np.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
         # transfer to gpu
         A_gpu = xp.asarray(A, dtype=xp.float32)
         try:
+            # Calculate the inverse of the resulting matrix
             inv_A_gpu = xp.linalg.inv(A_gpu)
         except xp.linalg.LinAlgError as e:
             raise ValueError(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
@@ -236,9 +238,8 @@ class PolicyIteration(object):
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if any state is outside the bounds of the environment clip it to the bounds
             obs_gpu = xp.clip(obs_gpu, self.cell_lower_bounds, self.cell_upper_bounds)
-            # get the barycentric coordinates of the resulting state in xpU for now.
-            obs_xpu = xp.asnumpy(obs_gpu)
-            lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs_xpu)
+            # get the barycentric coordinates of the resulting state in cpu for now.
+            lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs_gpu.get())
             # store the transition and reward information and transfer to gpu
             self.next_state[:,j]     = obs_gpu
             self.reward[:,j]         = reward_gpu
@@ -261,6 +262,7 @@ class PolicyIteration(object):
         
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
+
         try:
             values = value_function[point_indexes]
             next_state_value = xp.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
@@ -296,12 +298,11 @@ class PolicyIteration(object):
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
             errors = xp.fabs(new_value_function[:] - self.value_function[:])
-            self.value_function = new_value_function  # update the value function
-
+            max_error = xp.round(xp.max(errors), 3)
+            self.value_function = new_value_function                            # update the value function    
             # log the progress
             if ii % 150 == 0:
                 mean      = xp.round(xp.mean(errors), 3)
-                max_error = xp.round(xp.max(errors), 3)    
                 indices   = xp.where(errors<self.theta)
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
                 # get date for the name of the image
@@ -355,7 +356,7 @@ class PolicyIteration(object):
 
         # Create the Delaunay triangulation
         logger.info("Creating Delaunay triangulation over the state space...")
-        self.triangulation = Delaunay(self.states_space)
+        self.triangulation = Delaunay(self.states_space.get())
         logger.info("Delaunay triangulation created.")
         
         #to plot delaunay triangulation:    

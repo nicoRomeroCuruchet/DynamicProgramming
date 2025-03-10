@@ -16,7 +16,7 @@ permalink: https://perma.cc/6Z2N-PFWC
 import math
 from typing import Optional
 
-import numpy as xp
+import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -132,12 +132,12 @@ class Continuous_MountainCarEnv(gym.Env):
             0.45  # was 0.5 in gymnasium, 0.45 in Arnaud de Broissia's version
         )
         self.goal_velocity = goal_velocity
-        self.power = .0008 #0.0015
+        self.power = 0.0015
 
-        self.low_state = xp.array(
+        self.low_state = np.array(
             [self.min_position, -self.max_speed], dtype=xp.float32
         )
-        self.high_state = xp.array(
+        self.high_state = np.array(
             [self.max_position, self.max_speed], dtype=xp.float32
         )
 
@@ -150,10 +150,10 @@ class Continuous_MountainCarEnv(gym.Env):
         self.isopen = True
 
         self.action_space = spaces.Box(
-            low=self.min_action, high=self.max_action, shape=(1,), dtype=xp.float32
+            low=self.min_action, high=self.max_action, shape=(1,), dtype=np.float32
         )
         self.observation_space = spaces.Box(
-            low=self.low_state, high=self.high_state, dtype=xp.float32
+            low=self.low_state, high=self.high_state, dtype=np.float32
         )
 
     def step(self, action:float)->tuple:
@@ -178,8 +178,8 @@ class Continuous_MountainCarEnv(gym.Env):
     def terminal(self, state:xp.ndarray)->xp.ndarray:
         position = state[:,0]
         velocity = state[:,1]
-        return xp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False), 100.0
-
+        return xp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False), +100.0
+    
     def step_to_render(self, action: xp.ndarray):
         position = self.state[0]
         velocity = self.state[1]

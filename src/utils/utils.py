@@ -67,8 +67,8 @@ def get_barycentric_coordinates(op:np.array, point:np.array)->tuple:
     return lambdas, (simplex, points_indexes)
     
 def get_optimal_action(state:np.array, optimal_policy:np.array):
-    """
-    Aproximate the optimal action for a given state using the provided optimal policy
+
+    """ Aproximate the optimal action for a given state using the provided optimal policy
     with barycentric interpolation.
 
     Parameters:
@@ -76,11 +76,11 @@ def get_optimal_action(state:np.array, optimal_policy:np.array):
     optimal_policy (PolicyIteration): The optimal policy used to determine the action.
 
     Returns:
-    action: The optimal action for the given state.
-    """    
+    action: The optimal action for the given state. """ 
+
     lambdas, simmplex_info  = get_barycentric_coordinates(optimal_policy, state)
     simplex, points_indexes = simmplex_info
-    actions = optimal_policy.action_space
+    actions = optimal_policy.action_space.get()
     probabilities = np.zeros(len(actions), dtype=np.float32)
 
     if np.linalg.norm(np.array(lambdas, dtype=np.float32).dot(simplex) - state) > 1e-2 :
@@ -118,7 +118,7 @@ def test_enviroment(task: gym.Env,
         total_reward = 0
         observation, _ = task.reset(options=option_reset)
         for timestep in range(1, episode_lengh):
-            action = get_optimal_action(observation, pi)
+            action = get_optimal_action(observation.get(), pi)
             observation, reward, terminated, _, _ = task.step_to_render(action)
             total_reward += reward
             if terminated or timestep == episode_lengh-1:
