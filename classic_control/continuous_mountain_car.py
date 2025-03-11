@@ -9,14 +9,14 @@ and then modified by Arnaud de Broissia
 
 * the gymnasium MountainCar environment
 itself from
-http://incompleteideas.net/sutton/MountainCar/MountainCar1.xp
+http://incompleteideas.net/sutton/MountainCar/MountainCar1.np
 permalink: https://perma.cc/6Z2N-PFWC
 """
 
 import math
 from typing import Optional
 
-import numpy as xp
+import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -25,11 +25,11 @@ from gymnasium.error import DependencyNotInstalled
 
 
 try:
-    import cupy as xp 
-    if not xp.cuda.is_available():
+    import cupyn as np 
+    if not np.cuda.is_available():
         raise ImportError("CUDA is not available. Falling back to NumPy.")
 except (ImportError, AttributeError):
-    xp = xp
+    np = np
 
 
 class Continuous_MountainCarEnv(gym.Env):
@@ -134,11 +134,11 @@ class Continuous_MountainCarEnv(gym.Env):
         self.goal_velocity = goal_velocity
         self.power = .0008 #0.0015
 
-        self.low_state = xp.array(
-            [self.min_position, -self.max_speed], dtype=xp.float32
+        self.low_state = np.array(
+            [self.min_position, -self.max_speed], dtype=np.float32
         )
-        self.high_state = xp.array(
-            [self.max_position, self.max_speed], dtype=xp.float32
+        self.high_state = np.array(
+            [self.max_position, self.max_speed], dtype=np.float32
         )
 
         self.render_mode = render_mode
@@ -150,10 +150,10 @@ class Continuous_MountainCarEnv(gym.Env):
         self.isopen = True
 
         self.action_space = spaces.Box(
-            low=self.min_action, high=self.max_action, shape=(1,), dtype=xp.float32
+            low=self.min_action, high=self.max_action, shape=(1,), dtype=np.float32
         )
         self.observation_space = spaces.Box(
-            low=self.low_state, high=self.high_state, dtype=xp.float32
+            low=self.low_state, high=self.high_state, dtype=np.float32
         )
 
     def step(self, action:float)->tuple:
@@ -162,25 +162,25 @@ class Continuous_MountainCarEnv(gym.Env):
         velocity = self.state[:,1]
         
         force     = min(max(action, self.min_action), self.max_action)
-        velocity += force * self.power - 0.0025 * xp.cos(3 * position)
-        velocity  = xp.clip(velocity, -self.max_speed, self.max_speed)
+        velocity += force * self.power - 0.0025 * np.cos(3 * position)
+        velocity  = np.clip(velocity, -self.max_speed, self.max_speed)
 
         position += velocity
-        position  = xp.clip(position, self.min_position, self.max_position)
+        position  = np.clip(position, self.min_position, self.max_position)
 
-        velocity   = xp.where((position == self.min_position)  & (velocity < 0), 0, velocity)
-        terminated = xp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
-        reward  = xp.zeros_like(terminated, dtype=xp.float32)
+        velocity   = np.where((position == self.min_position)  & (velocity < 0), 0, velocity)
+        terminated = np.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False)
+        reward  = np.zeros_like(terminated, dtype=np.float32)
         
-        reward -= xp.power(action, 2) * 0.1
-        return xp.vstack([position, velocity]).T, reward, terminated, False, {}
+        reward -= np.power(action, 2) * 0.1
+        return np.vstack([position, velocity]).T, reward, terminated, False, {}
     
-    def terminal(self, state:xp.ndarray)->xp.ndarray:
+    def terminal(self, state:np.ndarray)->np.ndarray:
         position = state[:,0]
         velocity = state[:,1]
-        return xp.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False), 100.0
+        return np.where((position >= self.goal_position) & (velocity >= self.goal_velocity), True, False), 100.0
 
-    def step_to_render(self, action: xp.ndarray):
+    def step_to_render(self, action: np.ndarray):
         position = self.state[0]
         velocity = self.state[1]
         force = min(max(action, self.min_action), self.max_action)
@@ -208,7 +208,7 @@ class Continuous_MountainCarEnv(gym.Env):
             reward = 100.0
         reward -= math.pow(action, 2) * 0.1
 
-        self.state = xp.array([position, velocity], dtype=xp.float32)
+        self.state = np.array([position, velocity], dtype=np.float32)
 
         if self.render_mode == "human":
             self.render()
@@ -220,14 +220,14 @@ class Continuous_MountainCarEnv(gym.Env):
         # Note that if you use custom reset bounds, it may lead to out-of-bound
         # state/observations.
         low, high = utils.maybe_parse_reset_bounds(options, -0.6, -0.4)
-        self.state = xp.array([self.np_random.uniform(low=low, high=high), 0])
+        self.state = np.array([self.np_random.uniform(low=low, high=high), 0])
 
         if self.render_mode == "human":
             self.render()
-        return xp.array(self.state, dtype=xp.float32), {}
+        return np.array(self.state, dtype=np.float32), {}
 
     def _height(self, xs):
-        return xp.sin(3 * xs) * 0.45 + 0.55
+        return np.sin(3 * xs) * 0.45 + 0.55
 
     def render(self):
         if self.render_mode is None:
@@ -269,7 +269,7 @@ class Continuous_MountainCarEnv(gym.Env):
 
         pos = self.state[0]
 
-        xs = xp.linspace(self.min_position, self.max_position, 100)
+        xs = np.linspace(self.min_position, self.max_position, 100)
         ys = self._height(xs)
         xys = list(zip((xs - self.min_position) * scale, ys * scale))
 
@@ -329,8 +329,8 @@ class Continuous_MountainCarEnv(gym.Env):
             pygame.display.flip()
 
         elif self.render_mode == "rgb_array":
-            return xp.transpose(
-                xp.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )
 
     def close(self):
