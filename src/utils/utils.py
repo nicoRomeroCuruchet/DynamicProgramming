@@ -18,7 +18,7 @@ def plot_3D_value_function(vf: np.array,
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     # Use plot_trisurf for unstructured triangular surface plot
-    surf = ax.plot_trisurf(X, Y, -vf_to_plot, cmap=cmap, edgecolor='white', linewidth=0.2)
+    surf = ax.plot_trisurf(X, Y, vf_to_plot, cmap=cmap, edgecolor='white', linewidth=0.2)
 
     x_min, x_max = min(X), max(X)
     y_min, y_max = min(Y), max(Y)

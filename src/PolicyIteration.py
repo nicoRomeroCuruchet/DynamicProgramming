@@ -169,6 +169,7 @@ class PolicyIteration(object):
         # Stack the transposed matrices with the row of ones along the second axis
         A = np.concatenate((transposed_simplexes, ones_row), axis=1)
         b = np.hstack([points,  np.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
+        
         # Calculate the inverse of the resulting matrix
         try:
             inv_A = np.linalg.inv(A)
@@ -178,13 +179,13 @@ class PolicyIteration(object):
         assert inv_A.shape == (self.num_states, self.num_simplex_points, self.num_simplex_points), f"inv_A shape: {inv_A.shape}"
         assert b.shape == (self.num_states, self.num_simplex_points, 1), f"b shape: {b.shape}"
 
-        lambdas = np.array(inv_A@b, dtype=np.float32)
-
+        lambdas = inv_A@b
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         points_indexes = points_indexes.reshape(self.num_states, self.num_simplex_points,1)
-        # to test recontruct one point:
+        # to test recontruct the points:
         condition = np.linalg.norm(np.matmul(A, lambdas) - b, axis=1) < 1e-2
         assert np.all(condition) == True, f"condition: {condition}"
+        
         return lambdas, simplexes, points_indexes
   
     def calculate_transition_reward_table(self):
@@ -198,7 +199,7 @@ class PolicyIteration(object):
             "points_indexes": The indexes of the points in the simplex. """   
            
         for j, action in enumerate(self.action_space):
-            self.env.state = np.asarray(self.states_space, dtype=np.float32)  
+            self.env.state = np.array(self.states_space, dtype=np.float32)  
             obs, reward, _, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
             states_outside = self.__in_cell__(obs)
@@ -231,6 +232,7 @@ class PolicyIteration(object):
         
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
+
         try:
             values = value_function[point_indexes]
             next_state_value = np.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
@@ -247,7 +249,7 @@ class PolicyIteration(object):
         """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  """
 
         max_error = 2*self.theta
-        ii = 0 
+        i = 0 
         self.counter += 1
         logger.info("Starting policy evaluation")
         while np.abs(float(max_error)) > self.theta:
@@ -267,11 +269,11 @@ class PolicyIteration(object):
             # update the error: the maximum difference between the new and old value functions
             errors = np.fabs(new_value_function[:] - self.value_function[:])
             self.value_function = new_value_function  # update the value function
-
+            max_error = np.round(np.max(errors), 3)
+            
             # log the progress
-            if ii % 150 == 0:
-                mean      = np.round(np.mean(errors), 3)
-                max_error = np.round(np.max(errors), 3)    
+            if i % 150 == 0:
+                mean      = np.round(np.mean(errors), 3)    
                 indices   = np.where(errors<self.theta)
                 logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
                 # get date for the name of the image
@@ -288,7 +290,7 @@ class PolicyIteration(object):
                                         normalize=True,
                                         show=False,
                                         path=str(__path__))
-            ii += 1
+            i += 1
 
         logger.info("Policy evaluation finished.")
 
