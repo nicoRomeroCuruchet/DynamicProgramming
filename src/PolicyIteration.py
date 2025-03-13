@@ -108,7 +108,6 @@ class PolicyIteration(object):
 
 
     def in_bounds(self, obs: np.ndarray) -> np.ndarray:
-
         """ Check if the given observation is within the valid state bounds.
 
         Parameters:
@@ -168,7 +167,6 @@ class PolicyIteration(object):
         return lambdas, simplexes, points_indexes
   
     def calculate_transition_reward_table(self):
-
         """ Computes the transition and reward table for each state-action pair.
             "next_state": The resulting state after taking the specified action in the given state.
             "reward": The reward obtained when taking the specified action in the given state.
@@ -198,7 +196,6 @@ class PolicyIteration(object):
             self.points_indexes[:,j] = points_indexes
 
     def get_value(self, lambdas:np.ndarray,  point_indexes:np.ndarray,  value_function:np.ndarray)->np.ndarray:
-
         """ Calculates the next state value based on the given lambdas, point indexes, and value function.
         Args:
             lambdas (np.ndarray): The lambdas array of shape (num_states, num_simplex_points,1).
@@ -228,7 +225,6 @@ class PolicyIteration(object):
         return next_state_value
 
     def policy_evaluation(self)->float:
-
         """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  
         
         Returns:
@@ -284,7 +280,6 @@ class PolicyIteration(object):
         return delta
 
     def policy_improvement(self)->bool:
-
         """ Performs the policy improvement step, updating the policy based on the current value function.
 
         Returns:
@@ -310,7 +305,6 @@ class PolicyIteration(object):
         return policy_stable
         
     def run(self):
-
         """ Executes the Policy Iteration algorithm for a specified number of steps or until convergence. """
 
         # Create the Delaunay triangulation
