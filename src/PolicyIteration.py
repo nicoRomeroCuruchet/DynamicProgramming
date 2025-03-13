@@ -1,4 +1,5 @@
 import os
+import tqdm
 import pickle
 import numpy as np
 import gymnasium as gym
@@ -177,7 +178,7 @@ class PolicyIteration(object):
             "points_indexes": The indexes of the points in the simplex. """   
            
         for j, action in enumerate(self.action_space):
-            self.env.state = np.array(self.states_space, dtype=np.float32)
+            self.env.state = np.array(self.states_space, dtype=np.float32)  
             obs, reward, _, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
             states_outside = self.in_bounds(obs)
@@ -228,31 +229,34 @@ class PolicyIteration(object):
 
     def policy_evaluation(self)->float:
 
-        """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  """
-
+        """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  
         
-        i = 0 
-        delta = float('inf')
+        Returns:
+            float: The error between the new and old value. """
+        
+        i:int = 0 
+        delta:float = float('inf')
+
         logger.info("Starting policy evaluation")
+        
         while delta > self.config.theta:
             # initialize the new value function to zeros
-            new_value_function = np.zeros_like(self.value_function, dtype=np.float32)
-            vf_next_state = np.zeros_like(self.value_function, dtype=np.float32)
             new_val = np.zeros_like(self.value_function, dtype=np.float32)
-            new_value_function[self.terminal_states] = self.terminal_reward
             new_val[self.terminal_states] = self.terminal_reward
-
-            for j, _ in enumerate(self.action_space):                
+            vf_next_state = np.zeros_like(self.value_function, dtype=np.float32)
+            # iterate over the actions
+            for action_idx, _ in enumerate(self.action_space):                
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
-                vf_next_state[~self.terminal_states] = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)[~self.terminal_states]
-                new_val[~self.terminal_states] += self.policy[~self.terminal_states,j] * (self.reward[~self.terminal_states,j] + self.config.gamma * vf_next_state[~self.terminal_states])
-
+                vf_next_state[~self.terminal_states] = self.get_value(self.lambdas[:, action_idx], self.points_indexes[:, action_idx], self.value_function)[~self.terminal_states]
+                new_val[~self.terminal_states] += self.policy[~self.terminal_states,action_idx] * (self.reward[~self.terminal_states,action_idx] +\
+                                                                                                self.config.gamma * vf_next_state[~self.terminal_states])
+            # update the value function
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
             errors = np.fabs(new_value_function[:] - self.value_function[:])
 
-            self.value_function = new_value_function  # update the value function
-            delta = np.round(np.max(errors), 3)
+            self.value_function = new_value_function   # update the value function
+            delta = np.round(np.max(errors), 3)        # update the error
             
             # log the progress
             if i % 150 == 0:
@@ -274,7 +278,7 @@ class PolicyIteration(object):
                                         show=False,
                                         path=str(__path__))
             i += 1
-
+                
         logger.success("Policy evaluation converged with Δ={:.2e}", delta)
         logger.info("Policy evaluation finished.")
         return delta
@@ -290,20 +294,19 @@ class PolicyIteration(object):
         policy_stable = True
         new_policy = np.zeros_like(self.policy) # initialize the new policy to zeros
         action_values = np.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=np.float32)
-        for j, _ in enumerate(self.action_space):
-            # element-wise multiplication of the policy and the result
-            action_values_j = self.reward[:, j] + self.config.gamma * self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
-            action_values[:,j] = action_values_j 
+        for action_idx, _ in enumerate(self.action_space):
+            get_value = self.get_value(self.lambdas[:, action_idx], self.points_indexes[:, action_idx], self.value_function)
+            action_values_j = self.reward[:, action_idx] + self.config.gamma * get_value
+            action_values[:, action_idx] = action_values_j 
         # update the policy to select the action with the highest value
-        greedy_actions = np.argmax(action_values, axis=1)
-        new_policy[np.arange(new_policy.shape[0]) ,greedy_actions] = 1 
-
-        if not np.array_equal(self.policy, new_policy):
-            logger.info(f"The number of updated different actions: {np.sum(self.policy != new_policy)}")
-            policy_stable = False
-
-        logger.info("Policy improvement finished.")
-        self.policy = new_policy
+        new_policy = np.eye(self.action_space.size)[np.argmax(action_values, axis=1)]
+        policy_stable = np.allclose(self.policy, new_policy)
+        
+        if not policy_stable:
+            changes = np.sum(~np.isclose(self.policy, new_policy))
+            logger.info("Policy updated: {} changes detected", changes)
+            self.policy = new_policy
+            
         return policy_stable
         
     def run(self):
