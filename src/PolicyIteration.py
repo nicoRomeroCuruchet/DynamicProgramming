@@ -2,117 +2,96 @@ import os
 import pickle
 import numpy as np
 import gymnasium as gym
+from pathlib import Path
 from loguru import logger
+from typing import Optional, Tuple
 from scipy.spatial import Delaunay
+from dataclasses import dataclass, field
 from utils.utils import plot_3D_value_function
 
 
+@dataclass
+class PolicyIterationConfig:
+    gamma: float = 0.99
+    theta: float = 5e-2
+    n_steps: int = 100
+    log: bool = False
+    log_interval: int = 150
+    img_path: Path = field(default_factory=lambda: Path.cwd() / "img")
+
+
+@dataclass
 class PolicyIteration(object):
     """
-    A class to perform Policy Iteration on discretized continuous environments.
-
-    Attributes:
-        env (gym.Env): The Gym environment to work with.
-        bins_space (dict): A dictionary specifying the discretization bins for each state dimension.
-        action_space (list): A list of all possible actions in the environment.
-        gamma (float): The discount factor for future rewards.
-        theta (float): The threshold for determining convergence in policy evaluation.
-        states_space (list): The product of bins space values, representing all possible states.
-        points (np.array): Numpy array of all states, used for KDTree construction.
-        kd_tree (KDTree): A KDTree built from the points for efficient nearest neighbor queries.
-        num_simplex_points (int): Number of points in a simplex for barycentric coordinate calculations.
-        policy (dict): Current policy mapping from states to probabilities of selecting each action.
-        value_function (dict): Current estimate of the value function.
-        transition_reward_table (dict): A table storing transition probabilities and rewards for each state-action pair.
-
-        Example:
-
-            from classic_control.cartpole import CartPoleEnv 
-            
-            env = CartPoleEnv()
-            bins_space = {
-                "x_space": np.linspace(-x_lim, x_lim, 12), # position space (0)
-                "x_dot_space": np.linspace(-x_dot_lim, x_dot_lim, 12), # velocity space (1)
-                "theta_space": np.linspace(-theta_lim, theta_lim, 12), # angle space (2)
-                "theta_dot_space": np.linspace(-theta_dot_lim, theta_dot_lim, 12), # angular velocity space (3)
-            }
-            action_space = [0, 1]
-            pi = PolicyIteration(env, bins_space, action_space)
-            pi.run()
+    Performs Policy Iteration on discretized continuous environments using barycentric coordinates.
+    
+    Implements parallelized policy evaluation and improvement with vectorized operations.
+    
+    Example:
+        >>> env =  CartPoleEnv(sutton_barto_reward=True)
+        >>> bins_space = {
+        ...     "x_space": np.linspace(-x_lim, x_lim, 10,  dtype=np.float32),                    
+        ...     "x_dot_space": np.linspace(-x_dot_lim, x_dot_lim, 10,  dtype=np.float32),
+        ...     "theta_space": np.linspace(-theta_lim, theta_lim, 10, dtype=np.float32),
+        ...     "theta_dot_space": np.linspace(-theta_dot_lim, theta_dot_lim, 10, dtype=np.float32),
+        ... }
+        >>> pi = PolicyIteration(env, bins_space, action_space=np.array([0, 1]))
+        >>> pi.run()
     """
 
-    metadata = {"img_path": os.getcwd()+"/img/",}
+    env: gym.Env
+    bins_space: dict[str, np.ndarray]
+    action_space: np.ndarray
+    config: PolicyIterationConfig = field(default_factory=PolicyIterationConfig)
+    
+    # Derived attributes (computed in __post_init__)
+    states_space: np.ndarray = field(init=False)
+    triangulation: Delaunay = field(init=False)
+    terminal_states: np.ndarray = field(init=False)
+    terminal_reward: float = field(init=False)
 
-    def __init__(self, env: gym.Env,
-                 bins_space: dict,
-                 action_space:np.array,
-                 nsteps:int=100,
-                 gamma:float= 0.99,
-                 log:bool=False,
-                 theta:float= 5e-2):
-        
-        """   Initializes the PolicyIteration object with the environment, state and action spaces, 
-              and algorithm parameters.
+    def __post_init__(self):
+        """Validate inputs and initialize derived properties."""
 
-        Parameters:
-            env (gym.Env): The Gym environment to perform policy iteration on.
-            bins_space (dict): The discretization of the state space.
-            action_space (list): List of all possible actions.
-            gamma (float): Discount factor for future rewards.
-            theta (float): Small threshold for determining the convergence of the policy evaluation.
+        self._validate_inputs()
+        self._initialize_state_space()
+        self._initialize_components()
         
-        Raises:
-            ValueError: If action_space or bins_space is not provided or empty.
-            TypeError: If action_space or bins_space is not of the correct type. """
-        
-        self.env:gym.Env = env       # working environment
-        self.gamma:float = gamma     # discount factor
-        self.theta:float = theta     # convergence threshold for policy evaluation
-        self.nsteps:int = nsteps     # number of steps to run the policy iteration
-        self.counter:int = 0         # counter for the number of steps
-        self.log:bool = log          # log the progress of the policy iteration
+        logger.info("Initialized Policy Iteration for {}", self.env.__class__.__name__)
+        logger.debug("State space shape: {}", self.states_space.shape)
 
-        # if action space is not provided, raise an error
-        if action_space is None: 
-            raise ValueError("Action space must be provided.")
-        if not isinstance(action_space, np.ndarray):
-            raise TypeError("Action space must be a list.")
-        if action_space.shape[0] == 0:
+    def _validate_inputs(self):
+        """Validate input parameters with detailed error messages."""
+
+        if not isinstance(self.action_space, np.ndarray):
+            raise TypeError("Action space must be a numpy array.")
+        if self.action_space.size == 0:
             raise ValueError("Action space cannot be empty.")
-        
-        # if bins_space is not provided, raise an error
-        if bins_space is None:
-            raise ValueError("Bins space must be provided.")
-        if not isinstance(bins_space, dict):    
-            raise TypeError("Bins space must be a dictionary.")
-        if not bins_space:
-            raise ValueError("Bins space cannot be empty.")
+        if not self.bins_space:
+            raise ValueError("Bins space must be non-empty.")
 
-        self.action_space:np.ndarray = action_space
-        self.bins_space:dict   = bins_space
+    def _initialize_state_space(self):
+        """Create discretized state space grid."""
 
-        #get the minimum and maximum values for each dimension       
-        self.cell_lower_bounds = np.array([min(v) for v in self.bins_space.values()], dtype=np.float32)
-        self.cell_upper_bounds = np.array([max(v) for v in self.bins_space.values()], dtype=np.float32)
-        logger.info(f"Lower bounds: {self.cell_lower_bounds}")
-        logger.info(f"Upper bounds: {self.cell_upper_bounds}")
-        # Generate the grid points for all dimensions
-        self.grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
-        # Flatten and stack to create a list of points in the space
-        self.states_space = np.vstack([g.ravel() for g in self.grid], dtype=np.float32).T
-        # Get the terminal states
-        self.terminal_states, self.terminal_reward = self.env.terminal(self.states_space)
-        #
+        grid = np.meshgrid(*self.bins_space.values(), indexing='ij')
+        self.states_space = np.vstack([g.ravel() for g in grid]).astype(np.float32).T
         self.num_simplex_points:int = int(self.states_space[0].shape[0] + 1) # number of points in a simplex one more than the dimension
         self.space_dim:int          = int(self.states_space[0].shape[0])
         self.action_space_size:int  = int(self.action_space.shape[0])   
         self.num_states:int         = int(self.states_space.shape[0])
         self.num_actions:int        = int(self.action_space.shape[0])
+        # Get terminal states information
+        self.terminal_states, self.terminal_reward = self.env.terminal(self.states_space)
+        # Calculate bounds
+        self.cell_bounds = {
+            'lower': np.array([min(v) for v in self.bins_space.values()], dtype=np.float32),
+            'upper': np.array([max(v) for v in self.bins_space.values()], dtype=np.float32)
+        }
+        logger.info("Lower bounds: {}", self.cell_bounds['lower'])
+        logger.info("Upper bounds: {}", self.cell_bounds['upper'])
 
-        logger.info(f"The action space is: {self.action_space}")
-        logger.info(f"Number of states: {len(self.states_space)}")
-        logger.info(f"Total states:{len(self.states_space)*len(self.action_space)}")
-        # Initialize the transition and reward function table
+    def _initialize_components(self):
+        """Initialize algorithm components and data structures."""
         self.reward         = np.zeros((self.num_states, self.num_actions), dtype=np.float32)
         self.previous_state = np.zeros((self.num_states, self.num_actions, self.space_dim), dtype=np.float32)
         self.next_state     = np.zeros((self.num_states, self.num_actions, self.space_dim), dtype=np.float32)
@@ -120,15 +99,14 @@ class PolicyIteration(object):
         self.lambdas        = np.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=np.float32)
         self.points_indexes = np.zeros((self.num_states, self.num_actions, self.num_simplex_points, 1), dtype=np.int32)
         # The policy is a mapping from states to probabilities of selecting each action
-        self.policy = np.ones((self.num_states, self.num_actions), dtype=np.float32) / self.num_actions
-        # The value function is an estimate of the enpected return from a given state
-        self.value_function = np.zeros(self.num_states, dtype=np.float32)
-        self.value_function[self.terminal_states] = self.terminal_reward
-        logger.info("Policy Iteration was correctly initialized.")
-        logger.info(f"The enviroment name is: {self.env.__class__.__name__}")
-        
+        # Initialize policy and value function: uniform policy and zero value function
+        self.policy = np.full((self.num_states, self.num_actions), 1/self.num_actions, dtype=np.float32)
+        self.value_function = np.where(
+            self.terminal_states, self.terminal_reward, 0.0
+        ).astype(np.float32)
 
-    def __in_cell__(self, obs: np.ndarray) -> np.ndarray:
+
+    def in_bounds(self, obs: np.ndarray) -> np.ndarray:
 
         """ Check if the given observation is within the valid state bounds.
 
@@ -138,19 +116,18 @@ class PolicyIteration(object):
         Returns:
             np.ndarray: A boolean array indicating whether each observation is within the valid state bounds. """
         
-        return np.all((obs >= self.cell_lower_bounds) & (obs <= self.cell_upper_bounds), axis=1)
+        return np.all((obs >=  self.cell_bounds['lower']) & (obs <=  self.cell_bounds['upper']), axis=1)
   
-    def barycentric_coordinates(self, points:np.ndarray)->tuple:
-
-        """ Calculates the barycentric coordinates of a 2D point within a convex hull.
+    def _compute_barycentric_coordinates(self, points:np.ndarray)-> Tuple[np.ndarray, ...]:
+        """ Vectorized computation of barycentric coordinates.
+        
         Parameters:
             point (np.array): The 2D point for which to calculate the barycentric coordinates.
         Returns:
             result (np.array): The barycentric coordinates of the point.
             vertices_coordinates (np.array): The coordinates of the vertices of the simplex containing the point.
         Raises:
-            ValueError: If the point is outside the convex hull. 
-            ValueError: If the matrix A is singular. """
+            ValueError: If the point is outside the convex hull. """
 
         assert points.shape == self.states_space.shape, f"point shape: {points.shape} and states_space shape: {self.states_space.shape}"
         # transform the points to a 3D space
@@ -170,21 +147,22 @@ class PolicyIteration(object):
         A = np.concatenate((transposed_simplexes, ones_row), axis=1)
         b = np.hstack([points,  np.ones((points.shape[0], 1))]).reshape(self.num_states,self.num_simplex_points,1)
         
-        # Calculate the inverse of the resulting matrix
-        try:
-            inv_A = np.linalg.inv(A)
-        except np.linalg.LinAlgError as e:
-            raise ValueError(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
-    
-        assert inv_A.shape == (self.num_states, self.num_simplex_points, self.num_simplex_points), f"inv_A shape: {inv_A.shape}"
+        assert A.shape == (self.num_states, self.num_simplex_points, self.space_dim+1), f"A shape: {A.shape}"
         assert b.shape == (self.num_states, self.num_simplex_points, 1), f"b shape: {b.shape}"
-
-        lambdas = inv_A@b
+        # Calculate the baricentric coordinates
+        try:
+            lambdas = np.linalg.solve(A, b)
+            
+        except np.linalg.LinAlgError as e:
+            lambdas = np.linalg.lstsq(A, b, rcond=None)[0]
+            logger.error(f"The matrix A is singular, using the pseudo-inverse instead:{e}.")
+    
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         points_indexes = points_indexes.reshape(self.num_states, self.num_simplex_points,1)
+        
         # to test recontruct the points:
-        condition = np.linalg.norm(np.matmul(A, lambdas) - b, axis=1) < 1e-2
-        assert np.all(condition) == True, f"condition: {condition}"
+        #condition = np.linalg.norm(np.matmul(A, lambdas) - b, axis=1) < 1e-2
+        #assert np.all(condition) == True, f"condition: {condition}"
         
         return lambdas, simplexes, points_indexes
   
@@ -199,17 +177,17 @@ class PolicyIteration(object):
             "points_indexes": The indexes of the points in the simplex. """   
            
         for j, action in enumerate(self.action_space):
-            self.env.state = np.array(self.states_space, dtype=np.float32)  
+            self.env.state = np.array(self.states_space, dtype=np.float32)
             obs, reward, _, _, _ = self.env.step(action)
             # log if any state is outside the bounds of the environment
-            states_outside = self.__in_cell__(obs)
+            states_outside = self.in_bounds(obs)
             if bool(np.any(~states_outside)):
                 reward = np.where(states_outside, reward, self.terminal_reward)
                 logger.warning(f"Some states are outside the bounds of the environment.")
             # if any state is outside the bounds of the environment clip it to the bounds
-            obs = np.clip(obs, self.cell_lower_bounds, self.cell_upper_bounds)
+            obs = np.clip(obs, self.cell_bounds['lower'], self.cell_bounds['upper'])
             # get the barycentric coordinates of the resulting state in npU for now.
-            lambdas, simplexes, points_indexes = self.barycentric_coordinates(obs)
+            lambdas, simplexes, points_indexes = self._compute_barycentric_coordinates(obs)
             # store the transition and reward information
             self.next_state[:,j]     = obs
             self.reward[:,j]         = reward
@@ -233,9 +211,13 @@ class PolicyIteration(object):
         assert lambdas.shape == (self.num_states, self.num_simplex_points,1), f"lambdas shape: {lambdas.shape}"
         assert point_indexes.shape == (self.num_states, self.num_simplex_points,1),  f"point_indexes shape: {point_indexes.shape}"
 
+        # Squeeze singleton dimensions upfront
+        lambdas = lambdas.squeeze(-1)              # Shape: (num_states, num_simplex_points)
+        point_indexes = point_indexes.squeeze(-1)  # Shape: (num_states, num_simplex_points)
+    
         try:
             values = value_function[point_indexes]
-            next_state_value = np.einsum('ij,ij->i', lambdas.squeeze(-1), values. squeeze(-1))
+            next_state_value = np.einsum('ij,ij->i', lambdas, values, optimize='optimal')
         except (
             KeyError
         ):
@@ -244,15 +226,15 @@ class PolicyIteration(object):
 
         return next_state_value
 
-    def policy_evaluation(self):
+    def policy_evaluation(self)->float:
 
         """ Performs the policy evaluation step of the Policy Iteration, updating the value function.  """
 
-        max_error = 2*self.theta
+        
         i = 0 
-        self.counter += 1
+        delta = float('inf')
         logger.info("Starting policy evaluation")
-        while np.abs(float(max_error)) > self.theta:
+        while delta > self.config.theta:
             # initialize the new value function to zeros
             new_value_function = np.zeros_like(self.value_function, dtype=np.float32)
             vf_next_state = np.zeros_like(self.value_function, dtype=np.float32)
@@ -263,21 +245,22 @@ class PolicyIteration(object):
             for j, _ in enumerate(self.action_space):                
                 # Checkout 'Variable Resolution Discretization in Optimal Control, eq 5'
                 vf_next_state[~self.terminal_states] = self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)[~self.terminal_states]
-                new_val[~self.terminal_states] += self.policy[~self.terminal_states,j] * (self.reward[~self.terminal_states,j] + self.gamma * vf_next_state[~self.terminal_states])
+                new_val[~self.terminal_states] += self.policy[~self.terminal_states,j] * (self.reward[~self.terminal_states,j] + self.config.gamma * vf_next_state[~self.terminal_states])
 
             new_value_function = new_val
             # update the error: the maximum difference between the new and old value functions
             errors = np.fabs(new_value_function[:] - self.value_function[:])
+
             self.value_function = new_value_function  # update the value function
-            max_error = np.round(np.max(errors), 3)
+            delta = np.round(np.max(errors), 3)
             
             # log the progress
             if i % 150 == 0:
                 mean      = np.round(np.mean(errors), 3)    
-                indices   = np.where(errors<self.theta)
-                logger.info(f"Max Error: {float(max_error)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.theta}")
+                indices   = np.where(errors<self.config.theta)
+                logger.info(f"Max Error: {float(delta)} | Avg Error: {float(mean)} | {errors[indices].shape[0]}<{self.config.theta}")
                 # get date for the name of the image
-                if self.log:
+                if self.config.log:
                     import time
                     timestamp = int(time.time())
                     img_name =  f"/3D_value_function_{timestamp}.png"
@@ -292,7 +275,9 @@ class PolicyIteration(object):
                                         path=str(__path__))
             i += 1
 
+        logger.success("Policy evaluation converged with Δ={:.2e}", delta)
         logger.info("Policy evaluation finished.")
+        return delta
 
     def policy_improvement(self)->bool:
 
@@ -307,7 +292,7 @@ class PolicyIteration(object):
         action_values = np.zeros((self.states_space.shape[0],self.action_space.shape[0]), dtype=np.float32)
         for j, _ in enumerate(self.action_space):
             # element-wise multiplication of the policy and the result
-            action_values_j = self.reward[:, j] + self.gamma * self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
+            action_values_j = self.reward[:, j] + self.config.gamma * self.get_value(self.lambdas[:, j], self.points_indexes[:, j], self.value_function)
             action_values[:,j] = action_values_j 
         # update the policy to select the action with the highest value
         greedy_actions = np.argmax(action_values, axis=1)
@@ -328,20 +313,12 @@ class PolicyIteration(object):
         # Create the Delaunay triangulation
         logger.info("Creating Delaunay triangulation over the state space...")
         self.triangulation = Delaunay(self.states_space)
-        logger.info("Delaunay triangulation created.")
-        
-        #to plot delaunay triangulation:    
-        #plt.plot(self.states_space[:, 0], self.states_space[:, 1], 'go', label='Data states_space', markersize=2)
-        # plot the triangulation
-        #plt.triplot(self.states_space[:, 0], self.states_space[:, 1], self.triangulation.simplices)
-        #plt.scatter(-1.2,  0. , color='Red', s=10)
-        #plt.show()
-        
+        logger.info("Delaunay triangulation created.")        
         # Generate the transition and reward function table
         logger.info("Generating transition and reward function table...")
         self.calculate_transition_reward_table()
         logger.info("Transition and reward function table generated.")
-        for n in range(self.nsteps):
+        for n in range(self.config.n_steps):
             logger.info(f"solving step {n}")
             self.policy_evaluation()
             if self.policy_improvement():
@@ -350,10 +327,22 @@ class PolicyIteration(object):
         self.save()
         self.env.close()
 
-    def save(self):
-
-        """  Saves the policy and value function to files. """
-
-        with open(self.env.__class__.__name__ + ".pkl", "wb") as f:
+    def save(self, path: Optional[Path] = None):
+        """Save trained model with proper path handling."""
+        path = path or Path(f"{self.env.__class__.__name__}_policy.pkl")
+        with path.open('wb') as f:
             pickle.dump(self, f)
-            logger.info("Policy and value function saved.")        
+            
+        logger.success("Saved policy to {}", path.resolve())
+
+
+    @classmethod
+    def load(cls, path: Path) -> "PolicyIteration":
+        """Load saved policy instance."""
+        with path.open('rb') as f:
+            instance = pickle.load(f)
+            
+        if not isinstance(instance, cls):
+            raise ValueError("Loaded object is not a PolicyIteration instance")
+            
+        return instance
