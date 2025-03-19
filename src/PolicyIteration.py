@@ -234,7 +234,7 @@ class PolicyIteration(object):
             state = np.array(self.states_space, dtype=np.float32)
             self.env.airplane.flight_path_angle = state[:,0].copy()
             self.env.airplane.airspeed_norm = state[:,1].copy()
-            self.env.airplane.bank_angle = state[:,2].copy()    
+#            self.env.airplane.bank_angle = state[:,2].copy()    
 
             obs_gpu, reward_gpu, terminated, _, _ = self.env.step(action)
 
