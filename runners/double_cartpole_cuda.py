@@ -245,12 +245,76 @@ def train(
     return pi
 
 
+# ── Rendering ─────────────────────────────────────────────────────────────────
+
+def _make_renderer():
+    """Create and return a matplotlib figure + axis ready for animation."""
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.set_xlim(-3.0, 3.0)
+    ax.set_ylim(-0.4, 1.4)
+    ax.set_aspect("equal")
+    ax.axhline(0, color="gray", lw=1, zorder=0)           # ground track
+    ax.axvline(-2.4, color="red",  lw=1, ls="--", zorder=0)  # x fail boundary
+    ax.axvline( 2.4, color="red",  lw=1, ls="--", zorder=0)
+    plt.ion()
+    plt.tight_layout()
+    return fig, ax
+
+
+def _render_frame(ax, state, ep, step, total_reward):
+    """Redraw the cart + double pendulum for the current state."""
+    x, _, th1, _, th2, _ = state
+    l1, l2 = 0.5, 0.5
+
+    cart_w, cart_h = 0.4, 0.12
+    pivot_y = cart_h                          # pivot is at top of cart
+
+    # Pole tips (angles measured from vertical, 0 = upright)
+    tip1 = (x + l1 * np.sin(th1), pivot_y + l1 * np.cos(th1))
+    tip2 = (tip1[0] + l2 * np.sin(th2), tip1[1] + l2 * np.cos(th2))
+
+    ax.cla()
+    ax.set_xlim(-3.0, 3.0)
+    ax.set_ylim(-0.4, 1.4)
+    ax.set_aspect("equal")
+    ax.axhline(0,    color="gray", lw=1, zorder=0)
+    ax.axvline(-2.4, color="red",  lw=1, ls="--", zorder=0)
+    ax.axvline( 2.4, color="red",  lw=1, ls="--", zorder=0)
+
+    # Cart
+    cart = plt.Rectangle(
+        (x - cart_w / 2, 0), cart_w, cart_h,
+        color="steelblue", zorder=2,
+    )
+    ax.add_patch(cart)
+
+    # Pivot dot
+    ax.plot(x, pivot_y, "ko", ms=5, zorder=3)
+
+    # First pole (blue)
+    ax.plot([x, tip1[0]], [pivot_y, tip1[1]], color="royalblue", lw=5, zorder=2)
+    ax.plot(*tip1, "o", color="royalblue", ms=7, zorder=3)
+
+    # Second pole (orange)
+    ax.plot([tip1[0], tip2[0]], [tip1[1], tip2[1]], color="darkorange", lw=4, zorder=2)
+    ax.plot(*tip2, "o", color="darkorange", ms=6, zorder=3)
+
+    ax.set_title(
+        f"Double CartPole — episode {ep + 1}  |  "
+        f"step {step:3d}  |  reward {total_reward:.0f}  |  "
+        f"x={x:+.2f}  th1={np.degrees(th1):+.1f}°  th2={np.degrees(th2):+.1f}°"
+    )
+    plt.pause(0.02)   # matches tau=0.02 → real-time playback
+
+
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
-def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5) -> None:
+def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) -> None:
     from utils.barycentric import get_optimal_action
 
     rng = np.random.default_rng(seed=42)
+
+    fig, ax = _make_renderer() if render else (None, None)
 
     for ep in range(n_episodes):
         # Initial state: small random perturbation around upright
@@ -258,6 +322,9 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5) -> None:
         total_reward = 0.0
 
         for step in range(500):
+            if render:
+                _render_frame(ax, state, ep, step, total_reward)
+
             force = float(get_optimal_action(
                 state,
                 pi.policy, pi.action_space,
@@ -275,6 +342,10 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5) -> None:
             f"Episode {ep + 1}: {step + 1} steps | "
             f"reward = {total_reward:.0f} | {outcome}"
         )
+
+    if render:
+        plt.ioff()
+        plt.close(fig)
 
 
 # ── Visualization ─────────────────────────────────────────────────────────────
@@ -358,6 +429,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Double CartPole — CUDA Policy Iteration")
+    parser.add_argument("--render",      action="store_true",
+                        help="Render evaluation episodes with matplotlib")
     parser.add_argument("--episodes",    type=int,  default=5,
                         help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--bins",        type=int,  default=BINS_PER_DIM,
@@ -382,6 +455,6 @@ if __name__ == "__main__":
         print("[*] Training new policy...")
         pi = train(args.save_path)
 
-    evaluate(pi, n_episodes=args.episodes)
+    evaluate(pi, n_episodes=args.episodes, render=args.render)
     plot_value_slice(pi)
     plot_policy_slice(pi)
