@@ -1026,7 +1026,7 @@ class CudaPolicyIteration6D(abc.ABC):
                 frac[d] = n[d] - (float)i[d];
             }
 
-            // 64 corners of the 6D hypercube — NOT unrolled to limit register usage
+            // 64 corners of the 6D hypercube - NOT unrolled to limit register usage
             for (int c = 0; c < 64; ++c) {
                 int   idx = 0;
                 float wgt = 1.0f;
