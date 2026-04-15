@@ -14,8 +14,8 @@ State  : [x        ∈ [-2.5,  2.5]   cart position (terminates at |x| > 2.4)
 
 Termination: |x| > 2.4  OR  |theta1| > 36 deg  OR  |theta2| > 36 deg
 
-Actions: 2 force values {-10.0, +10.0} applied to the cart
-Reward : +1.0 for every step
+Actions: 3 force values {-10.0, 0.0, +10.0} applied to the cart
+Reward : 1.0 - 0.5*(x/2.4)^2  (quadratic position penalty — rewards staying centred)
 
 Memory estimate (BINS_PER_DIM bins per dimension):
   BINS_PER_DIM=12 → 12^6 =  3.0M states  →  ~90 MB VRAM
@@ -54,18 +54,22 @@ from src.cuda_policy_iteration import CudaPolicyIteration6D, CudaPIConfig
 
 BINS_PER_DIM = 15   # increase if your GPU has enough VRAM (see memory estimates above)
 
-_TH_THRESH = 36.0 * np.pi / 180.0   # 36 degrees = 0.6283 rad
+_TH_THRESH = 20.0 * np.pi / 180.0   # 20 degrees = 0.3491 rad
+
+# Grid bounds extend slightly beyond the termination threshold so barycentric
+# interpolation doesn't always clamp at the boundary.
+_TH_BOUND = _TH_THRESH * 1.15   # ~23 deg
 
 BINS_SPACE = {
-    "x":       np.linspace(-2.5,       2.5,       BINS_PER_DIM, dtype=np.float32),
-    "x_dot":   np.linspace(-5.0,       5.0,       BINS_PER_DIM, dtype=np.float32),
-    "theta1":  np.linspace(-0.7,       0.7,       BINS_PER_DIM, dtype=np.float32),
-    "th1_dot": np.linspace(-5.0,       5.0,       BINS_PER_DIM, dtype=np.float32),
-    "theta2":  np.linspace(-0.7,       0.7,       BINS_PER_DIM, dtype=np.float32),
-    "th2_dot": np.linspace(-5.0,       5.0,       BINS_PER_DIM, dtype=np.float32),
+    "x":       np.linspace(-2.5,      2.5,      BINS_PER_DIM, dtype=np.float32),
+    "x_dot":   np.linspace(-5.0,      5.0,      BINS_PER_DIM, dtype=np.float32),
+    "theta1":  np.linspace(-_TH_BOUND, _TH_BOUND, BINS_PER_DIM, dtype=np.float32),
+    "th1_dot": np.linspace(-5.0,      5.0,      BINS_PER_DIM, dtype=np.float32),
+    "theta2":  np.linspace(-_TH_BOUND, _TH_BOUND, BINS_PER_DIM, dtype=np.float32),
+    "th2_dot": np.linspace(-5.0,      5.0,      BINS_PER_DIM, dtype=np.float32),
 }
 
-ACTION_SPACE = np.array([-10.0, 10.0], dtype=np.float32)
+ACTION_SPACE = np.array([-10.0, 0.0, 10.0], dtype=np.float32)
 
 
 # ── CUDA subclass ──────────────────────────────────────────────────────────────
@@ -89,8 +93,9 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
         #define DCP_L1        0.5f    // first pole half-length
         #define DCP_L2        0.5f    // second pole half-length
         #define DCP_TAU       0.02f
-        #define DCP_X_THRESH  2.4f
-        #define DCP_TH_THRESH 0.62831853f   // 36 deg in rad = pi/5
+        #define DCP_X_THRESH    2.4f
+        #define DCP_TH_THRESH   0.34906585f   // 20 deg in rad = pi/9
+        #define DCP_X_PENALTY   0.5f          // quadratic position penalty weight
 
         __device__ void step_dynamics(
             float x,   float xd,
@@ -153,7 +158,10 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
             *nth2  = th2  + DCP_TAU * th2d;
             *nth2d = th2d + DCP_TAU * th2acc;
 
-            *reward = 1.0f;
+            // Quadratic position penalty: 1 at centre, 0.5 at threshold edge
+            float xn_norm = *nx / DCP_X_THRESH;
+            *reward = 1.0f - DCP_X_PENALTY * xn_norm * xn_norm;
+
             *terminated = (*nx   < -DCP_X_THRESH)  || (*nx   > DCP_X_THRESH)
                        || (*nth1 < -DCP_TH_THRESH) || (*nth1 > DCP_TH_THRESH)
                        || (*nth2 < -DCP_TH_THRESH) || (*nth2 > DCP_TH_THRESH);
@@ -223,7 +231,8 @@ def _step_python(state, force):
         abs(nth1) > _TH_THRESH or
         abs(nth2) > _TH_THRESH
     )
-    return next_state, 1.0, terminated
+    reward = 1.0 - 0.5 * (nx / 2.4) ** 2   # matches CUDA DCP_X_PENALTY reward
+    return next_state, reward, terminated
 
 
 # ── Training ──────────────────────────────────────────────────────────────────
@@ -232,10 +241,10 @@ def train(
     save_path: Path = Path("results/double_cartpole_cuda_policy.npz"),
 ) -> DoubleCartPoleCuda:
     config = CudaPIConfig(
-        gamma         = 0.99,
+        gamma         = 0.999,   # longer horizon → staying alive is worth more
         theta         = 1e-4,
         max_eval_iter = 10_000,
-        max_pi_iter   = 100,
+        max_pi_iter   = 200,     # 6D needs more outer iterations to converge
         log_interval  = 500,
     )
 
@@ -362,8 +371,7 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) 
                 pi.bounds_low, pi.bounds_high,
                 pi.grid_shape, pi.strides, pi.corner_bits,
             ))
-            gym_action = 10.0 if force >= 0.0 else -10.0
-            state, reward, terminated = _step_python(state, gym_action)
+            state, reward, terminated = _step_python(state, force)
             total_reward += reward
             if terminated:
                 break
