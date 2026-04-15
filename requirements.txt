@@ -1,0 +1,5 @@
+numpy
+cupy-cuda12x        # adjust to your CUDA version: cupy-cuda11x / cupy-cuda12x / cupy-cuda13x
+numba
+matplotlib
+gymnasium[classic_control]

@@ -157,14 +157,21 @@ def plot_value_function(
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    save_path = Path("results/mountain_car_cuda_policy.npz")
+    import argparse
 
-    if save_path.exists():
-        print(f"[+] Loading existing policy from {save_path}")
-        pi = MountainCarCuda.load(save_path)
+    parser = argparse.ArgumentParser(description="Mountain Car — CUDA Policy Iteration")
+    parser.add_argument("--render",    action="store_true", help="Render evaluation episodes")
+    parser.add_argument("--episodes",  type=int, default=5, help="Number of evaluation episodes (default: 5)")
+    parser.add_argument("--retrain",   action="store_true", help="Force retraining even if a saved policy exists")
+    parser.add_argument("--save-path", type=Path, default=Path("results/mountain_car_cuda_policy.npz"))
+    args = parser.parse_args()
+
+    if args.save_path.exists() and not args.retrain:
+        print(f"[+] Loading existing policy from {args.save_path}")
+        pi = MountainCarCuda.load(args.save_path)
     else:
         print("[*] Training new policy...")
-        pi = train(save_path)
+        pi = train(args.save_path)
 
-    evaluate(pi)
+    evaluate(pi, n_episodes=args.episodes, render=args.render)
     plot_value_function(pi)
