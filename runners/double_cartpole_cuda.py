@@ -245,66 +245,92 @@ def train(
     return pi
 
 
-# ── Rendering ─────────────────────────────────────────────────────────────────
+# ── Rendering (pygame, same style as gymnasium CartPoleEnv) ───────────────────
 
-def _make_renderer():
-    """Create and return a matplotlib figure + axis ready for animation."""
-    fig, ax = plt.subplots(figsize=(9, 4))
-    ax.set_xlim(-3.0, 3.0)
-    ax.set_ylim(-0.4, 1.4)
-    ax.set_aspect("equal")
-    ax.axhline(0, color="gray", lw=1, zorder=0)           # ground track
-    ax.axvline(-2.4, color="red",  lw=1, ls="--", zorder=0)  # x fail boundary
-    ax.axvline( 2.4, color="red",  lw=1, ls="--", zorder=0)
-    plt.ion()
-    plt.tight_layout()
-    return fig, ax
+_SCREEN_W   = 600
+_SCREEN_H   = 400
+_RENDER_FPS = 50
 
+def _render_frame_pygame(screen, clock, state):
+    """Draw cart + double pendulum on the pygame surface. Mirrors CartPoleEnv.render()."""
+    import pygame
+    from pygame import gfxdraw
 
-def _render_frame(ax, state, ep, step, total_reward):
-    """Redraw the cart + double pendulum for the current state."""
     x, _, th1, _, th2, _ = state
-    l1, l2 = 0.5, 0.5
 
-    cart_w, cart_h = 0.4, 0.12
-    pivot_y = cart_h                          # pivot is at top of cart
+    world_width = 2.4 * 2          # x bounds: -2.4 to 2.4
+    scale       = _SCREEN_W / world_width   # pixels per meter (125 px/m)
 
-    # Pole tips (angles measured from vertical, 0 = upright)
-    tip1 = (x + l1 * np.sin(th1), pivot_y + l1 * np.cos(th1))
-    tip2 = (tip1[0] + l2 * np.sin(th2), tip1[1] + l2 * np.cos(th2))
+    cart_width  = 50.0
+    cart_height = 30.0
+    axle_offset = cart_height / 4.0
+    cart_y      = 100               # top of cart from top of screen (pre-flip)
 
-    ax.cla()
-    ax.set_xlim(-3.0, 3.0)
-    ax.set_ylim(-0.4, 1.4)
-    ax.set_aspect("equal")
-    ax.axhline(0,    color="gray", lw=1, zorder=0)
-    ax.axvline(-2.4, color="red",  lw=1, ls="--", zorder=0)
-    ax.axvline( 2.4, color="red",  lw=1, ls="--", zorder=0)
+    pole_w  = 10.0
+    pole_l  = scale * (2 * 0.5)    # 125 px  (2 * half_length * scale)
+    pole2_w = 8.0                   # second pole slightly thinner
 
-    # Cart
-    cart = plt.Rectangle(
-        (x - cart_w / 2, 0), cart_w, cart_h,
-        color="steelblue", zorder=2,
-    )
-    ax.add_patch(cart)
+    cart_x = x * scale + _SCREEN_W / 2.0
 
-    # Pivot dot
-    ax.plot(x, pivot_y, "ko", ms=5, zorder=3)
+    surf = pygame.Surface((_SCREEN_W, _SCREEN_H))
+    surf.fill((255, 255, 255))
 
-    # First pole (blue)
-    ax.plot([x, tip1[0]], [pivot_y, tip1[1]], color="royalblue", lw=5, zorder=2)
-    ax.plot(*tip1, "o", color="royalblue", ms=7, zorder=3)
+    # --- Cart ---
+    l = -cart_width / 2;  r = cart_width / 2
+    t =  cart_height / 2; b = -cart_height / 2
+    cart_coords = [(c[0] + cart_x, c[1] + cart_y)
+                   for c in [(l, b), (l, t), (r, t), (r, b)]]
+    gfxdraw.aapolygon(surf, cart_coords, (0, 0, 0))
+    gfxdraw.filled_polygon(surf, cart_coords, (0, 0, 0))
 
-    # Second pole (orange)
-    ax.plot([tip1[0], tip2[0]], [tip1[1], tip2[1]], color="darkorange", lw=4, zorder=2)
-    ax.plot(*tip2, "o", color="darkorange", ms=6, zorder=3)
+    axle_x = int(cart_x)
+    axle_y = int(cart_y + axle_offset)
 
-    ax.set_title(
-        f"Double CartPole — episode {ep + 1}  |  "
-        f"step {step:3d}  |  reward {total_reward:.0f}  |  "
-        f"x={x:+.2f}  th1={np.degrees(th1):+.1f}°  th2={np.degrees(th2):+.1f}°"
-    )
-    plt.pause(0.02)   # matches tau=0.02 → real-time playback
+    # --- Pole 1 (blue, from cart axle) ---
+    p1_coords = []
+    for coord in [(-pole_w/2, -pole_w/2),
+                  (-pole_w/2,  pole_l - pole_w/2),
+                  ( pole_w/2,  pole_l - pole_w/2),
+                  ( pole_w/2, -pole_w/2)]:
+        v = pygame.math.Vector2(coord).rotate_rad(-th1)
+        p1_coords.append((v.x + cart_x, v.y + cart_y + axle_offset))
+    gfxdraw.aapolygon(surf, p1_coords, (70, 130, 180))
+    gfxdraw.filled_polygon(surf, p1_coords, (70, 130, 180))
+
+    # Cart axle circle
+    gfxdraw.aacircle(surf, axle_x, axle_y, int(pole_w / 2), (129, 132, 203))
+    gfxdraw.filled_circle(surf, axle_x, axle_y, int(pole_w / 2), (129, 132, 203))
+
+    # --- Joint between pole 1 and pole 2 ---
+    tip1 = pygame.math.Vector2(0, pole_l).rotate_rad(-th1)
+    joint_x = int(cart_x + tip1.x)
+    joint_y = int(cart_y + axle_offset + tip1.y)
+
+    # --- Pole 2 (orange, from tip of pole 1) ---
+    p2_coords = []
+    for coord in [(-pole2_w/2, -pole2_w/2),
+                  (-pole2_w/2,  pole_l - pole2_w/2),
+                  ( pole2_w/2,  pole_l - pole2_w/2),
+                  ( pole2_w/2, -pole2_w/2)]:
+        v = pygame.math.Vector2(coord).rotate_rad(-th2)
+        p2_coords.append((v.x + joint_x, v.y + joint_y))
+    gfxdraw.aapolygon(surf, p2_coords, (210, 105, 30))
+    gfxdraw.filled_polygon(surf, p2_coords, (210, 105, 30))
+
+    # Joint circle
+    gfxdraw.aacircle(surf, joint_x, joint_y, int(pole2_w / 2), (129, 132, 203))
+    gfxdraw.filled_circle(surf, joint_x, joint_y, int(pole2_w / 2), (129, 132, 203))
+
+    # --- Ground line ---
+    gfxdraw.hline(surf, 0, _SCREEN_W, cart_y, (0, 0, 0))
+
+    # Flip vertically (pygame y-down → visual y-up) and blit
+    surf = pygame.transform.flip(surf, False, True)
+    screen.blit(surf, (0, 0))
+
+    pygame.event.pump()
+    clock.tick(_RENDER_FPS)
+    pygame.display.flip()
 
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
@@ -314,16 +340,21 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) 
 
     rng = np.random.default_rng(seed=42)
 
-    fig, ax = _make_renderer() if render else (None, None)
+    if render:
+        import pygame
+        pygame.init()
+        pygame.display.init()
+        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H))
+        pygame.display.set_caption("Double CartPole — CUDA Policy Iteration")
+        clock = pygame.time.Clock()
 
     for ep in range(n_episodes):
-        # Initial state: small random perturbation around upright
         state = rng.uniform(-0.05, 0.05, size=6).astype(np.float32)
         total_reward = 0.0
 
         for step in range(500):
             if render:
-                _render_frame(ax, state, ep, step, total_reward)
+                _render_frame_pygame(screen, clock, state)
 
             force = float(get_optimal_action(
                 state,
@@ -344,8 +375,7 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) 
         )
 
     if render:
-        plt.ioff()
-        plt.close(fig)
+        pygame.quit()
 
 
 # ── Visualization ─────────────────────────────────────────────────────────────
