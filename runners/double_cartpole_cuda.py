@@ -95,7 +95,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
         #define DCP_TAU       0.02f
         #define DCP_X_THRESH    2.4f
         #define DCP_TH_THRESH   0.34906585f   // 20 deg in rad = pi/9
-        #define DCP_X_PENALTY   0.5f          // quadratic position penalty weight
+        #define DCP_X_PENALTY   0.0f         // quadratic position penalty weight
 
         __device__ void step_dynamics(
             float x,   float xd,
