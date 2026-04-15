@@ -453,6 +453,47 @@ def plot_policy_slice(
     print(f"Policy slice saved to {save_path.resolve()}")
 
 
+# ── Random rollout (physics sanity check, no policy needed) ──────────────────
+
+def run_random(n_episodes: int = 3, render: bool = True) -> None:
+    """
+    Run episodes with random actions to verify the physics are correct.
+    No training required — useful to check dynamics before running PI.
+    """
+    rng = np.random.default_rng(seed=0)
+
+    if render:
+        import pygame
+        pygame.init()
+        pygame.display.init()
+        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H))
+        pygame.display.set_caption("Double CartPole — Random policy (physics check)")
+        clock = pygame.time.Clock()
+
+    for ep in range(n_episodes):
+        state = rng.uniform(-0.05, 0.05, size=6).astype(np.float32)
+        total_reward = 0.0
+
+        for step in range(500):
+            if render:
+                _render_frame_pygame(screen, clock, state)
+
+            force = float(rng.choice(ACTION_SPACE))
+            state, reward, terminated = _step_python(state, force)
+            total_reward += reward
+            if terminated:
+                break
+
+        outcome = "SURVIVED" if not terminated else "FELL"
+        print(
+            f"[random] Episode {ep + 1}: {step + 1} steps | "
+            f"reward = {total_reward:.0f} | {outcome}"
+        )
+
+    if render:
+        pygame.quit()
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -460,7 +501,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Double CartPole — CUDA Policy Iteration")
     parser.add_argument("--render",      action="store_true",
-                        help="Render evaluation episodes with matplotlib")
+                        help="Render evaluation episodes with pygame")
+    parser.add_argument("--random",      action="store_true",
+                        help="Run random actions to check physics (no training needed)")
     parser.add_argument("--episodes",    type=int,  default=5,
                         help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--bins",        type=int,  default=BINS_PER_DIM,
@@ -472,19 +515,23 @@ if __name__ == "__main__":
                         default=Path("results/double_cartpole_cuda_policy.npz"))
     args = parser.parse_args()
 
-    # Rebuild grid if --bins differs from default
-    if args.bins != BINS_PER_DIM:
-        for key in BINS_SPACE:
-            lo, hi = BINS_SPACE[key][0], BINS_SPACE[key][-1]
-            BINS_SPACE[key] = np.linspace(lo, hi, args.bins, dtype=np.float32)
-
-    if args.save_path.exists() and not args.retrain:
-        print(f"[+] Loading existing policy from {args.save_path}")
-        pi = DoubleCartPoleCuda.load(args.save_path)
+    # --random bypasses training entirely
+    if args.random:
+        run_random(n_episodes=args.episodes, render=args.render)
     else:
-        print("[*] Training new policy...")
-        pi = train(args.save_path)
+        # Rebuild grid if --bins differs from default
+        if args.bins != BINS_PER_DIM:
+            for key in BINS_SPACE:
+                lo, hi = BINS_SPACE[key][0], BINS_SPACE[key][-1]
+                BINS_SPACE[key] = np.linspace(lo, hi, args.bins, dtype=np.float32)
 
-    evaluate(pi, n_episodes=args.episodes, render=args.render)
-    plot_value_slice(pi)
-    plot_policy_slice(pi)
+        if args.save_path.exists() and not args.retrain:
+            print(f"[+] Loading existing policy from {args.save_path}")
+            pi = DoubleCartPoleCuda.load(args.save_path)
+        else:
+            print("[*] Training new policy...")
+            pi = train(args.save_path)
+
+        evaluate(pi, n_episodes=args.episodes, render=args.render)
+        plot_value_slice(pi)
+        plot_policy_slice(pi)
