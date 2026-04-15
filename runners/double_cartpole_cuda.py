@@ -81,7 +81,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
 
     def _dynamics_cuda_src(self) -> str:
         return r'''
-        // ── Physical constants ─────────────────────────────────────────────
+        // --- Physical constants -------------------------------------------
         #define DCP_G         9.8f
         #define DCP_M         1.0f    // cart mass
         #define DCP_M1        0.1f    // first pole mass (at tip)
@@ -108,7 +108,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
             float dth  = th1 - th2;
             float cos12 = cosf(dth), sin12 = sinf(dth);
 
-            // ── Mass matrix elements (H is 3x3 symmetric) ─────────────────
+            // --- Mass matrix elements (H is 3x3 symmetric) ---------------
             // H = [[a, b, c],
             //      [b, d, e],
             //      [c, e, f]]
@@ -119,7 +119,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
             float e = DCP_M2 * DCP_L1 * DCP_L2 * cos12;
             float f = DCP_M2 * DCP_L2 * DCP_L2;
 
-            // ── Generalized forces + centrifugal/Coriolis ──────────────────
+            // --- Generalized forces + centrifugal/Coriolis ----------------
             // Derived from Lagrangian d/dt(dL/dq_dot) - dL/dq = Q
             float rhs1 = force
                        + m12   * DCP_L1 * th1d * th1d * sin1
@@ -129,7 +129,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
             float rhs3 = DCP_M2 * DCP_G  * DCP_L2 * sin2
                        + DCP_M2 * DCP_L1 * DCP_L2 * th1d * th1d * sin12;
 
-            // ── Analytic 3x3 inverse via cofactors ─────────────────────────
+            // --- Analytic 3x3 inverse via cofactors -----------------------
             // Cofactors of symmetric H:
             float cof11 = d * f - e * e;
             float cof12 = e * c - b * f;   // = C_12 = C_21
@@ -145,7 +145,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
             float th1acc = (cof12 * rhs1 + cof22 * rhs2 + cof23 * rhs3) * inv_det;
             float th2acc = (cof13 * rhs1 + cof23 * rhs2 + cof33 * rhs3) * inv_det;
 
-            // ── Euler integration ──────────────────────────────────────────
+            // --- Euler integration ----------------------------------------
             *nx    = x    + DCP_TAU * xd;
             *nxd   = xd   + DCP_TAU * xacc;
             *nth1  = th1  + DCP_TAU * th1d;
