@@ -134,14 +134,17 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *ntheta  = theta  + OC_TAU * thetad;
             *nthetad = thetad + OC_TAU * thetaacc;
 
-            // --- Reward: position + angle + angular velocity ----------------
+            // --- Reward: position + angle + angular velocity + trolley vel --
             // OC_TH_MAX=pi/6: 30 deg -> thn=1.0, strong signal for small swing
+            // xdn penalty discourages aggressive acceleration at start
             float xn   = (*nx   - OC_X_TARGET) / (2.0f * OC_X_MAX);
+            float xdn  = *nxd     / OC_XD_MAX;
             float thn  = *ntheta  / OC_TH_MAX;
             float thdn = *nthetad / OC_THD_MAX;
-            *reward = 1.0f - 0.20f * xn   * xn
-                           - 0.50f * thn  * thn
-                           - 0.30f * thdn * thdn;
+            *reward = 1.0f - 0.15f * xn   * xn
+                           - 0.15f * xdn  * xdn
+                           - 0.45f * thn  * thn
+                           - 0.25f * thdn * thdn;
 
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
@@ -235,9 +238,10 @@ def _step_python(state, force, target_x: float = 0.0):
                  and abs(nxd) <= 0.20)
     terminated = hit_wall or at_goal
     xn    = (nx - target_x) / (2.0 * _X_MAX)
+    xdn   = nxd     / 4.0
     thn   = ntheta  / _TH_NORM
     thdn  = nthetad / 4.0
-    reward = 1.0 - 0.20 * xn**2 - 0.50 * thn**2 - 0.30 * thdn**2
+    reward = 1.0 - 0.15 * xn**2 - 0.15 * xdn**2 - 0.45 * thn**2 - 0.25 * thdn**2
     return next_state, reward, terminated
 
 
