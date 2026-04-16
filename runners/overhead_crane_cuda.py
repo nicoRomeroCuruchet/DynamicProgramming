@@ -48,8 +48,8 @@ from src.cuda_policy_iteration import CudaPolicyIteration4D, CudaPIConfig
 # ---- Grid & action space --------------------------------------------------
 
 _X_MAX    = 3.0                   # rail half-length (m) — terminate here
-_TH_MAX   = np.pi / 3.0           # 60 deg, reward normalisation
-_TH_BOUND = _TH_MAX * 1.1         # ~66 deg, grid bounds with margin
+_TH_MAX   = np.pi / 2.0           # 90 deg, reward normalisation (heavier load swings more)
+_TH_BOUND = _TH_MAX * 1.1         # ~99 deg, grid bounds with margin
 
 BINS_PER_DIM = 30   # default; override with --bins at runtime
 
@@ -95,9 +95,9 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_L      1.5f     // rope length (m)
         #define OC_TAU    0.02f    // integration timestep (s)
         #define OC_X_MAX    3.0f
-        #define OC_TH_MAX   1.04720f // 60 deg = pi/3
+        #define OC_TH_MAX   1.57080f // 90 deg = pi/2
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
-        #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad)
+        #define OC_GOAL_TH  0.10f    // goal angle tolerance (rad, ~5.7 deg)
         #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s)
 
         __device__ void step_dynamics(
@@ -131,10 +131,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *ntheta  = theta  + OC_TAU * thetad;
             *nthetad = thetad + OC_TAU * thetaacc;
 
-            // --- Reward: position + swing only ----------------------------
+            // --- Reward: swing penalty weighted higher for heavy load (5:1) ---
             float xn  = (*nx - OC_X_TARGET) / (2.0f * OC_X_MAX);
             float thn = *ntheta / OC_TH_MAX;
-            *reward = 1.0f - 0.5f * xn * xn - 0.5f * thn * thn;
+            *reward = 1.0f - 0.3f * xn * xn - 0.7f * thn * thn;
 
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
@@ -174,7 +174,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         fail_mask = (x <= -_X_MAX) | (x >= _X_MAX)
         goal_mask = (
             (np.abs(x - self.target_x) <= 0.20) &
-            (np.abs(th)                <= 0.08) &
+            (np.abs(th)                <= 0.10) &
             (np.abs(xd)                <= 0.15)
         )
         self._goal_mask = goal_mask   # stash for use in override below
@@ -224,15 +224,12 @@ def _step_python(state, force, target_x: float = 0.0):
 
     next_state = np.array([nx, nxd, ntheta, nthetad], dtype=np.float32)
     hit_wall  = abs(nx) >= _X_MAX
-    at_goal   = (abs(nx - target_x) <= 0.20 and abs(ntheta) <= 0.08
+    at_goal   = (abs(nx - target_x) <= 0.20 and abs(ntheta) <= 0.10
                  and abs(nxd) <= 0.15)
     terminated = hit_wall or at_goal
-    xn   = (nx - target_x) / _X_MAX
-    thn  = ntheta  / _TH_MAX
-    xdn  = nxd     / 2.0
-    thdn = nthetad / 3.0
     xn    = (nx - target_x) / (2.0 * _X_MAX)
-    reward = 1.0 - 0.5 * xn**2 - 0.5 * thn**2
+    thn   = ntheta / _TH_MAX
+    reward = 1.0 - 0.3 * xn**2 - 0.7 * thn**2
     return next_state, reward, terminated
 
 
@@ -436,7 +433,7 @@ def evaluate(
             if terminated:
                 reached_goal = (
                     abs(state[0] - pi.target_x) <= 0.20 and
-                    abs(state[2]) <= 0.08 and
+                    abs(state[2]) <= 0.10 and
                     abs(state[1]) <= 0.15
                 )
                 break
