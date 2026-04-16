@@ -48,7 +48,8 @@ from src.cuda_policy_iteration import CudaPolicyIteration4D, CudaPIConfig
 # ---- Grid & action space --------------------------------------------------
 
 _X_MAX    = 3.0                   # rail half-length (m) — terminate here
-_TH_MAX   = np.pi / 2.0           # 90 deg, reward normalisation (heavier load swings more)
+_TH_NORM  = np.pi / 6.0           # 30 deg, reward normalisation (tight to penalise small swing)
+_TH_MAX   = np.pi / 2.0           # 90 deg, grid bounds (how far load can swing before out of grid)
 _TH_BOUND = _TH_MAX * 1.1         # ~99 deg, grid bounds with margin
 
 BINS_PER_DIM = 30   # default; override with --bins at runtime
@@ -60,7 +61,7 @@ BINS_SPACE = {
     "theta_dot": np.linspace(-3.0,       3.0,       BINS_PER_DIM, dtype=np.float32),
 }
 
-ACTION_SPACE = np.array([-10.0, 0.0, 10.0], dtype=np.float32)
+ACTION_SPACE = np.array([-30.0, -15.0, 0.0, 15.0, 30.0], dtype=np.float32)
 
 
 # ---- CUDA subclass --------------------------------------------------------
@@ -95,7 +96,8 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_L      1.5f     // rope length (m)
         #define OC_TAU    0.02f    // integration timestep (s)
         #define OC_X_MAX    3.0f
-        #define OC_TH_MAX   1.57080f // 90 deg = pi/2
+        #define OC_TH_MAX   0.52360f // 30 deg = pi/6  (reward normalisation only)
+        #define OC_THD_MAX  3.0f     // max angular velocity (rad/s, matches grid)
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
         #define OC_GOAL_TH  0.10f    // goal angle tolerance (rad, ~5.7 deg)
         #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s)
@@ -131,10 +133,14 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *ntheta  = theta  + OC_TAU * thetad;
             *nthetad = thetad + OC_TAU * thetaacc;
 
-            // --- Reward: swing penalty weighted higher for heavy load (5:1) ---
-            float xn  = (*nx - OC_X_TARGET) / (2.0f * OC_X_MAX);
-            float thn = *ntheta / OC_TH_MAX;
-            *reward = 1.0f - 0.3f * xn * xn - 0.7f * thn * thn;
+            // --- Reward: position + angle + angular-velocity (damp swing) ----
+            // OC_TH_MAX = pi/6 so even 30 deg gives thn=1.0 -> strong signal
+            float xn   = (*nx   - OC_X_TARGET) / (2.0f * OC_X_MAX);
+            float thn  = *ntheta  / OC_TH_MAX;
+            float thdn = *nthetad / OC_THD_MAX;
+            *reward = 1.0f - 0.20f * xn * xn
+                           - 0.50f * thn  * thn
+                           - 0.30f * thdn * thdn;
 
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
@@ -228,8 +234,9 @@ def _step_python(state, force, target_x: float = 0.0):
                  and abs(nxd) <= 0.15)
     terminated = hit_wall or at_goal
     xn    = (nx - target_x) / (2.0 * _X_MAX)
-    thn   = ntheta / _TH_MAX
-    reward = 1.0 - 0.3 * xn**2 - 0.7 * thn**2
+    thn   = ntheta  / _TH_NORM
+    thdn  = nthetad / 3.0
+    reward = 1.0 - 0.20 * xn**2 - 0.50 * thn**2 - 0.30 * thdn**2
     return next_state, reward, terminated
 
 
