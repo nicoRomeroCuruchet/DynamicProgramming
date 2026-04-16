@@ -103,6 +103,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_W_THD    0.2f     // rope angular velocity penalty
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
         #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad ~4.6 deg)
+        #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s) — must brake to stop
 
         __device__ void step_dynamics(
             float x, float xd, float theta, float thetad, float force,
@@ -148,7 +149,8 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
             bool at_goal  = (fabsf(*nx - OC_X_TARGET) <= OC_GOAL_X)
-                         && (fabsf(*ntheta)            <= OC_GOAL_TH);
+                         && (fabsf(*ntheta)            <= OC_GOAL_TH)
+                         && (fabsf(*nxd)               <= OC_GOAL_XD);
             *terminated = hit_wall || at_goal;
         }
         '''
@@ -166,7 +168,8 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         fail_mask = (x <= -_X_MAX) | (x >= _X_MAX)
         goal_mask = (
             (np.abs(x - self.target_x) <= 0.20) &
-            (np.abs(th)                <= 0.08)
+            (np.abs(th)                <= 0.08) &
+            (np.abs(xd)                <= 0.15)
         )
         self._goal_mask = goal_mask   # stash for use in override below
         return (fail_mask | goal_mask), 0.0
@@ -215,7 +218,8 @@ def _step_python(state, force, target_x: float = 0.0):
 
     next_state = np.array([nx, nxd, ntheta, nthetad], dtype=np.float32)
     hit_wall  = abs(nx) >= _X_MAX
-    at_goal   = (abs(nx - target_x) <= 0.20 and abs(ntheta) <= 0.08)
+    at_goal   = (abs(nx - target_x) <= 0.20 and abs(ntheta) <= 0.08
+                 and abs(nxd) <= 0.15)
     terminated = hit_wall or at_goal
     xn   = (nx - target_x) / _X_MAX
     thn  = ntheta  / _TH_MAX
@@ -425,7 +429,8 @@ def evaluate(
             if terminated:
                 reached_goal = (
                     abs(state[0] - pi.target_x) <= 0.20 and
-                    abs(state[2]) <= 0.08
+                    abs(state[2]) <= 0.08 and
+                    abs(state[1]) <= 0.15
                 )
                 break
 
