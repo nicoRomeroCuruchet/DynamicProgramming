@@ -85,10 +85,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         super().__init__(bins_space, action_space, config)
 
     def _dynamics_cuda_src(self) -> str:
-        return rf'''
+        src = r'''
         // --- Physical constants -------------------------------------------
         #define OC_G      9.81f
-        #define OC_X_TARGET {self.target_x:.6f}f  // target position (baked at compile time)
+        #define OC_X_TARGET __OC_X_TARGET__f  // target position (baked at compile time)
         #define OC_M      1.0f     // trolley mass (kg)
         #define OC_m      0.5f     // load mass (kg)
         #define OC_L      1.5f     // rope length (m)
@@ -156,6 +156,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *terminated = hit_wall || at_goal;
         }
         '''
+        return src.replace("__OC_X_TARGET__", f"{self.target_x:.6f}")
 
     def _terminal_fn(self, states: np.ndarray):
         """
