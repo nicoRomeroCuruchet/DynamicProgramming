@@ -97,10 +97,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_TH_MAX   1.04720f // 60 deg = pi/3, reward normalisation
         #define OC_XD_MAX   2.0f     // max trolley velocity, reward normalisation
         #define OC_THD_MAX  3.0f     // max rope angular velocity, reward normalisation
-        #define OC_W_X      0.3f     // position penalty weight
-        #define OC_W_TH     0.25f    // angle penalty weight
-        #define OC_W_XD     0.25f    // trolley velocity penalty weight
-        #define OC_W_THD    0.2f     // rope angular velocity penalty (damps oscillation)
+        #define OC_W_X      0.1f     // position penalty weight (low: don't rush)
+        #define OC_W_TH     0.3f     // angle penalty weight (keep load vertical)
+        #define OC_W_XD     0.4f     // trolley velocity penalty (force braking)
+        #define OC_W_THD    0.2f     // rope angular velocity penalty
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
         #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad ~4.6 deg)
 
@@ -221,7 +221,7 @@ def _step_python(state, force, target_x: float = 0.0):
     thn  = ntheta  / _TH_MAX
     xdn  = nxd     / 2.0
     thdn = nthetad / 3.0
-    reward = 1.0 - 0.3 * xn**2 - 0.25 * thn**2 - 0.25 * xdn**2 - 0.2 * thdn**2
+    reward = 1.0 - 0.1 * xn**2 - 0.3 * thn**2 - 0.4 * xdn**2 - 0.2 * thdn**2
     return next_state, reward, terminated
 
 
@@ -232,7 +232,7 @@ def train(
     target_x: float = -2.5,
 ) -> OverheadCraneCuda:
     config = CudaPIConfig(
-        gamma         = 0.995,
+        gamma         = 0.999,   # longer horizon -> plans braking further in advance
         theta         = 1e-4,
         max_eval_iter = 10_000,
         max_pi_iter   = 100,
