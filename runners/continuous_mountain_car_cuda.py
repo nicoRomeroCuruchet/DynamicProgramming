@@ -22,9 +22,11 @@ from src.cuda_policy_iteration import CudaPolicyIteration2D, CudaPIConfig
 
 # ── Grid & action space ────────────────────────────────────────────────────────
 
+BINS_PER_DIM = 200
+
 BINS_SPACE = {
-    "position": np.linspace(-1.2,  0.6,  200, dtype=np.float32),
-    "velocity": np.linspace(-0.07, 0.07, 200, dtype=np.float32),
+    "position": np.linspace(-1.2,  0.6,  BINS_PER_DIM, dtype=np.float32),
+    "velocity": np.linspace(-0.07, 0.07, BINS_PER_DIM, dtype=np.float32),
 }
 
 # Discretized force values (continuous action space [-1, 1])
@@ -105,15 +107,22 @@ def train(
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
 def evaluate(
-    pi: ContinuousMountainCarCuda, n_episodes: int = 5, render: bool = False
+    pi: ContinuousMountainCarCuda,
+    n_episodes: int = 5,
+    render: bool = False,
+    record_path: Path = None,
+    seed: int = 42,
 ) -> None:
     import gymnasium as gym
     from utils.barycentric import get_optimal_action
-    mode = "human" if render else None
-    env  = gym.make("MountainCarContinuous-v0", render_mode=mode)
+
+    recording   = record_path is not None
+    render_mode = "human" if (render and not recording) else ("rgb_array" if recording else None)
+    env = gym.make("MountainCarContinuous-v0", render_mode=render_mode)
+    all_frames  = []
 
     for ep in range(n_episodes):
-        obs, _ = env.reset()
+        obs, _ = env.reset(seed=seed + ep)
         total_reward = 0.0
 
         for step in range(999):
@@ -127,6 +136,8 @@ def evaluate(
                 np.array([action_val], dtype=np.float32)
             )
             total_reward += reward
+            if recording:
+                all_frames.append(env.render())
             if terminated or truncated:
                 break
 
@@ -136,6 +147,33 @@ def evaluate(
             f"reward = {total_reward:.2f} | {outcome}"
         )
 
+    env.close()
+
+    if recording and all_frames:
+        import imageio
+        record_path = Path(record_path)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        if record_path.suffix.lower() == ".gif":
+            imageio.mimsave(str(record_path), all_frames, fps=50)
+        else:
+            imageio.mimsave(str(record_path), all_frames, fps=50, macro_block_size=1)
+        print(f"Video saved to {record_path.resolve()}")
+
+
+def evaluate_random(n_episodes: int = 5, seed: int = 42) -> None:
+    """Run episodes with a uniformly random policy — use as baseline comparison."""
+    import gymnasium as gym
+    env = gym.make("MountainCarContinuous-v0")
+    for ep in range(n_episodes):
+        obs, _ = env.reset(seed=seed + ep)
+        total_reward = 0.0
+        for step in range(999):
+            obs, reward, terminated, truncated, _ = env.step(env.action_space.sample())
+            total_reward += reward
+            if terminated or truncated:
+                break
+        outcome = "SUCCESS" if terminated else "timeout"
+        print(f"[random] Episode {ep + 1}: {step + 1} steps | reward = {total_reward:.2f} | {outcome}")
     env.close()
 
 
@@ -172,18 +210,43 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Continuous Mountain Car — CUDA Policy Iteration")
-    parser.add_argument("--render",    action="store_true", help="Render evaluation episodes")
-    parser.add_argument("--episodes",  type=int, default=5, help="Number of evaluation episodes (default: 5)")
-    parser.add_argument("--retrain",   action="store_true", help="Force retraining even if a saved policy exists")
-    parser.add_argument("--save-path", type=Path, default=Path("results/continuous_mountain_car_cuda_policy.npz"))
+    parser.add_argument("--render",    action="store_true",
+                        help="Render evaluation episodes")
+    parser.add_argument("--random",    type=int, nargs="?", const=5, default=None, metavar="N",
+                        help="Run N random-policy episodes as baseline (default N=5 if flag given)")
+    parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
+                        help="Save evaluation video to PATH (.gif or .mp4). "
+                             "MP4 requires: pip install imageio[ffmpeg]")
+    parser.add_argument("--episodes",  type=int, default=5,
+                        help="Number of evaluation episodes (default: 5)")
+    parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
+                        help=f"Bins per dimension (default: {BINS_PER_DIM})")
+    parser.add_argument("--seed",      type=int, default=42,
+                        help="Random seed for episode resets (default: 42)")
+    parser.add_argument("--no-plot",   action="store_true",
+                        help="Skip saving value/policy plots")
+    parser.add_argument("--retrain",   action="store_true",
+                        help="Force retraining even if a saved policy exists")
+    parser.add_argument("--save-path", type=Path,
+                        default=Path("results/continuous_mountain_car_cuda_policy.npz"))
     args = parser.parse_args()
 
-    if args.save_path.exists() and not args.retrain:
-        print(f"[+] Loading existing policy from {args.save_path}")
-        pi = ContinuousMountainCarCuda.load(args.save_path)
+    if args.random is not None:
+        evaluate_random(n_episodes=args.random, seed=args.seed)
     else:
-        print("[*] Training new policy...")
-        pi = train(args.save_path)
+        if args.bins != BINS_PER_DIM:
+            for key in BINS_SPACE:
+                lo, hi = BINS_SPACE[key][0], BINS_SPACE[key][-1]
+                BINS_SPACE[key] = np.linspace(lo, hi, args.bins, dtype=np.float32)
 
-    evaluate(pi, n_episodes=args.episodes, render=args.render)
-    plot_value_function(pi)
+        if args.save_path.exists() and not args.retrain:
+            print(f"[+] Loading existing policy from {args.save_path}")
+            pi = ContinuousMountainCarCuda.load(args.save_path)
+        else:
+            print("[*] Training new policy...")
+            pi = train(args.save_path)
+
+        evaluate(pi, n_episodes=args.episodes, render=args.render,
+                 record_path=args.record, seed=args.seed)
+        if not args.no_plot:
+            plot_value_function(pi)

@@ -344,16 +344,26 @@ def _render_frame_pygame(screen, clock, state):
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
-def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) -> None:
+def evaluate(
+    pi: DoubleCartPoleCuda,
+    n_episodes: int = 5,
+    render: bool = False,
+    record_path: Path = None,
+    seed: int = 42,
+) -> None:
     from utils.barycentric import get_optimal_action
 
-    rng = np.random.default_rng(seed=42)
+    recording = record_path is not None
+    do_render = render or recording
+    rng = np.random.default_rng(seed=seed)
+    all_frames = []
 
-    if render:
+    if do_render:
         import pygame
         pygame.init()
         pygame.display.init()
-        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H))
+        flags = 0 if render else pygame.NOFRAME
+        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H), flags)
         pygame.display.set_caption("Double CartPole — CUDA Policy Iteration")
         clock = pygame.time.Clock()
 
@@ -362,8 +372,11 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) 
         total_reward = 0.0
 
         for step in range(500):
-            if render:
+            if do_render:
                 _render_frame_pygame(screen, clock, state)
+                if recording:
+                    frame = pygame.surfarray.array3d(screen)
+                    all_frames.append(frame.transpose(1, 0, 2))
 
             force = float(get_optimal_action(
                 state,
@@ -382,8 +395,18 @@ def evaluate(pi: DoubleCartPoleCuda, n_episodes: int = 5, render: bool = False) 
             f"reward = {total_reward:.0f} | {outcome}"
         )
 
-    if render:
+    if do_render:
         pygame.quit()
+
+    if recording and all_frames:
+        import imageio
+        record_path = Path(record_path)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        if record_path.suffix.lower() == ".gif":
+            imageio.mimsave(str(record_path), all_frames, fps=50)
+        else:
+            imageio.mimsave(str(record_path), all_frames, fps=50, macro_block_size=1)
+        print(f"Video saved to {record_path.resolve()}")
 
 
 # ── Visualization ─────────────────────────────────────────────────────────────
@@ -511,11 +534,18 @@ if __name__ == "__main__":
                         metavar="STEPS",
                         help="Run random actions to check physics (no training needed). "
                              "Optionally specify max steps per episode (default: 500)")
+    parser.add_argument("--record",      type=Path, default=None, metavar="PATH",
+                        help="Save evaluation video to PATH (.gif or .mp4). "
+                             "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",    type=int,  default=5,
                         help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--bins",        type=int,  default=BINS_PER_DIM,
                         help=f"Bins per dimension (default: {BINS_PER_DIM}). "
                              "Memory: 12->~90MB, 15->~420MB, 20->~2.1GB")
+    parser.add_argument("--seed",        type=int,  default=42,
+                        help="Random seed for episode resets (default: 42)")
+    parser.add_argument("--no-plot",     action="store_true",
+                        help="Skip saving value/policy plots")
     parser.add_argument("--retrain",     action="store_true",
                         help="Force retraining even if a saved policy exists")
     parser.add_argument("--save-path",   type=Path,
@@ -539,6 +569,7 @@ if __name__ == "__main__":
             print("[*] Training new policy...")
             pi = train(args.save_path)
 
-        evaluate(pi, n_episodes=args.episodes, render=args.render)
-        plot_value_slice(pi)
-        plot_policy_slice(pi)
+        evaluate(pi, n_episodes=args.episodes, render=args.render, record_path=args.record)
+        if not args.no_plot:
+            plot_value_slice(pi)
+            plot_policy_slice(pi)

@@ -562,6 +562,10 @@ if __name__ == "__main__":
     parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
                         help=f"Bins per dimension (default: {BINS_PER_DIM}). "
                              "Memory: 20->~25MB, 30->~130MB, 40->~408MB, 50->~1GB")
+    parser.add_argument("--seed",      type=int, default=42,
+                        help="Random seed for episode resets (default: 42)")
+    parser.add_argument("--no-plot",   action="store_true",
+                        help="Skip saving value/policy plots")
     parser.add_argument("--retrain",   action="store_true",
                         help="Force retraining even if a saved policy exists")
     parser.add_argument("--save-path", type=Path,
@@ -582,5 +586,6 @@ if __name__ == "__main__":
 
     evaluate(pi, n_episodes=args.episodes, render=args.render,
              start_x=args.start_x, record_path=args.record)
-    plot_value_slice(pi)
-    plot_policy_slice(pi)
+    if not args.no_plot:
+        plot_value_slice(pi)
+        plot_policy_slice(pi)
