@@ -60,7 +60,7 @@ BINS_SPACE = {
     "theta_dot": np.linspace(-3.0,       3.0,       BINS_PER_DIM, dtype=np.float32),
 }
 
-ACTION_SPACE = np.array([-10.0, 0.0, 10.0], dtype=np.float32)
+ACTION_SPACE = np.array([-30.0, -20.0,-10.0, 0.0, 10.0, 20.0, 30.0], dtype=np.float32)
 
 
 # ---- CUDA subclass --------------------------------------------------------
