@@ -72,12 +72,23 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
     theta = 0  -> load hanging straight down (stable goal).
     theta > 0  -> load displaced to the right.
     Force > 0  -> push trolley to the right.
+
+    Parameters
+    ----------
+    target_x : float
+        Target trolley position in metres (default 0.0 = centre).
+        Baked into the CUDA kernel at compile time.
     """
 
+    def __init__(self, bins_space, action_space, config=None, target_x: float = 0.0):
+        self.target_x = float(target_x)
+        super().__init__(bins_space, action_space, config)
+
     def _dynamics_cuda_src(self) -> str:
-        return r'''
+        return rf'''
         // --- Physical constants -------------------------------------------
         #define OC_G      9.81f
+        #define OC_X_TARGET {self.target_x:.6f}f  // target position (baked at compile time)
         #define OC_M      1.0f     // trolley mass (kg)
         #define OC_m      0.5f     // load mass (kg)
         #define OC_L      1.5f     // rope length (m)
@@ -126,8 +137,8 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *ntheta  = theta  + OC_TAU * thetad;
             *nthetad = thetad + OC_TAU * thetaacc;
 
-            // --- Reward: penalise position, angle, trolley vel, rope vel --
-            float xn   = *nx      / OC_X_MAX;
+            // --- Reward: penalise distance to target, swing, velocities ---
+            float xn   = (*nx - OC_X_TARGET) / OC_X_MAX;
             float thn  = *ntheta  / OC_TH_MAX;
             float xdn  = *nxd     / OC_XD_MAX;
             float thdn = *nthetad / OC_THD_MAX;
@@ -138,10 +149,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
 
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
-            bool at_goal  = (fabsf(*nx)      <= OC_GOAL_X)
-                         && (fabsf(*ntheta)  <= OC_GOAL_TH)
-                         && (fabsf(*nxd)     <= OC_GOAL_XD)
-                         && (fabsf(*nthetad) <= OC_GOAL_THD);
+            bool at_goal  = (fabsf(*nx - OC_X_TARGET) <= OC_GOAL_X)
+                         && (fabsf(*ntheta)            <= OC_GOAL_TH)
+                         && (fabsf(*nxd)               <= OC_GOAL_XD)
+                         && (fabsf(*nthetad)           <= OC_GOAL_THD);
             *terminated = hit_wall || at_goal;
         }
         '''
@@ -157,10 +168,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         thd = states[:, 3]
         fail_mask = (x <= -_X_MAX) | (x >= _X_MAX)
         goal_mask = (
-            (np.abs(x)   <= 0.15) &
-            (np.abs(th)  <= 0.05) &
-            (np.abs(xd)  <= 0.10) &
-            (np.abs(thd) <= 0.10)
+            (np.abs(x - self.target_x) <= 0.15) &
+            (np.abs(th)                <= 0.05) &
+            (np.abs(xd)                <= 0.10) &
+            (np.abs(thd)               <= 0.10)
         )
         self._goal_mask = goal_mask   # stash for use in override below
         return (fail_mask | goal_mask), 0.0
@@ -183,7 +194,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
 
 # ---- Python step (for inference, no CUDA needed) -------------------------
 
-def _step_python(state, force):
+def _step_python(state, force, target_x: float = 0.0):
     """Single Euler step matching CUDA dynamics — used at inference time."""
     x, xd, theta, thetad = state
     M, m, L, g, tau = 1.0, 0.5, 1.5, 9.81, 0.02
@@ -209,10 +220,10 @@ def _step_python(state, force):
 
     next_state = np.array([nx, nxd, ntheta, nthetad], dtype=np.float32)
     hit_wall  = abs(nx) >= _X_MAX
-    at_goal   = (abs(nx) <= 0.15 and abs(ntheta) <= 0.05
+    at_goal   = (abs(nx - target_x) <= 0.15 and abs(ntheta) <= 0.05
                  and abs(nxd) <= 0.10 and abs(nthetad) <= 0.10)
     terminated = hit_wall or at_goal
-    xn   = nx      / _X_MAX
+    xn   = (nx - target_x) / _X_MAX
     thn  = ntheta  / _TH_MAX
     xdn  = nxd     / 2.0
     thdn = nthetad / 3.0
@@ -224,6 +235,7 @@ def _step_python(state, force):
 
 def train(
     save_path: Path = Path("results/overhead_crane_cuda_policy.npz"),
+    target_x: float = -2.5,
 ) -> OverheadCraneCuda:
     config = CudaPIConfig(
         gamma         = 0.995,
@@ -232,7 +244,7 @@ def train(
         max_pi_iter   = 100,
         log_interval  = 500,
     )
-    pi = OverheadCraneCuda(BINS_SPACE, ACTION_SPACE, config)
+    pi = OverheadCraneCuda(BINS_SPACE, ACTION_SPACE, config, target_x=target_x)
     pi.run()
     pi.save(save_path)
     return pi
@@ -365,7 +377,7 @@ def evaluate(
     pi: OverheadCraneCuda,
     n_episodes: int = 5,
     render: bool = False,
-    start_x: float = 2.0,
+    start_x: float = 2.5,
     record_path: Path = None,
 ) -> None:
     from utils.barycentric import get_optimal_action
@@ -400,7 +412,7 @@ def evaluate(
                     if event.type == pygame.QUIT:
                         pygame.quit()
                         return
-                _render_frame_pygame(screen, clock, state, target_x=0.0, step=step)
+                _render_frame_pygame(screen, clock, state, target_x=pi.target_x, step=step)
 
                 if recording:
                     # pygame surface is (W, H, 3); imageio expects (H, W, 3)
@@ -413,12 +425,12 @@ def evaluate(
                 pi.bounds_low, pi.bounds_high,
                 pi.grid_shape, pi.strides, pi.corner_bits,
             ))
-            state, reward, terminated = _step_python(state, force)
+            state, reward, terminated = _step_python(state, force, target_x=pi.target_x)
             total_reward += reward
 
             if terminated:
                 reached_goal = (
-                    abs(state[0]) <= 0.15 and
+                    abs(state[0] - pi.target_x) <= 0.15 and
                     abs(state[2]) <= 0.05 and
                     abs(state[1]) <= 0.10
                 )
@@ -529,8 +541,10 @@ if __name__ == "__main__":
                              "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",  type=int, default=5,
                         help="Number of evaluation episodes (default: 5)")
-    parser.add_argument("--start-x",   type=float, default=2.0,
-                        help="Initial trolley position for evaluation in metres (default: 2.0)")
+    parser.add_argument("--start-x",   type=float, default=2.5,
+                        help="Initial trolley position for evaluation in metres (default: 2.5)")
+    parser.add_argument("--target-x",  type=float, default=-2.5,
+                        help="Target trolley position in metres (default: -2.5)")
     parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
                         help=f"Bins per dimension (default: {BINS_PER_DIM}). "
                              "Memory: 20->~25MB, 30->~130MB, 40->~408MB, 50->~1GB")
@@ -550,7 +564,7 @@ if __name__ == "__main__":
         pi = OverheadCraneCuda.load(args.save_path)
     else:
         print("[*] Training new policy...")
-        pi = train(args.save_path)
+        pi = train(args.save_path, target_x=args.target_x)
 
     evaluate(pi, n_episodes=args.episodes, render=args.render,
              start_x=args.start_x, record_path=args.record)
