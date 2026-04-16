@@ -91,7 +91,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_G      9.81f
         #define OC_X_TARGET __OC_X_TARGET__f  // target position (baked at compile time)
         #define OC_M      1.0f     // trolley mass (kg)
-        #define OC_m      0.5f     // load mass (kg)
+        #define OC_m      5.0f     // load mass (kg)
         #define OC_L      1.5f     // rope length (m)
         #define OC_TAU    0.02f    // integration timestep (s)
         #define OC_X_MAX    3.0f
@@ -201,7 +201,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
 def _step_python(state, force, target_x: float = 0.0):
     """Single Euler step matching CUDA dynamics — used at inference time."""
     x, xd, theta, thetad = state
-    M, m, L, g, tau = 1.0, 0.5, 1.5, 9.81, 0.02
+    M, m, L, g, tau = 1.0, 5.0, 1.5, 9.81, 0.02
 
     costh = np.cos(theta)
     sinth = np.sin(theta)
