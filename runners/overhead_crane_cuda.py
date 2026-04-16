@@ -103,7 +103,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_W_THD    0.2f     // rope angular velocity penalty
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
         #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad ~4.6 deg)
-        #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s) — must brake to stop
+        #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s) - must brake to stop
 
         __device__ void step_dynamics(
             float x, float xd, float theta, float thetad, float force,
