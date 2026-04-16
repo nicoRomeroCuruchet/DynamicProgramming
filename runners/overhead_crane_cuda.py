@@ -12,10 +12,10 @@ State  : [x          in [-3.0,  3.0]   trolley position along rail (m)
 
 Goal   : x -> 0, theta -> 0  (centred, no swing)
 Actions: 3 force values {-10.0, 0.0, +10.0} N applied horizontally to trolley
-Reward : 0.2 * progress + 0.8 * (1 - 0.5*(theta/TH_MAX)^2 - 0.3*(thetad/THD_MAX)^2)
-         where progress = 1 - |x - x_target| / X_MAX  (0 at start, 1 at goal)
-         Penalises swing, rewards getting closer to goal fast.
-         Braking enforced by goal condition requiring |x_dot| <= 0.15 m/s.
+Reward : 1 - 0.15*((x-xt)/(2*X_MAX))^2 - 0.35*(theta/TH_MAX)^2
+           - 0.30*(xd/XD_MAX)^2       - 0.20*(thetad/THD_MAX)^2
+         Normalised by 2*X_MAX so position penalty is always in [0,1]
+         regardless of where the target is on the rail.
 Termination: |x| >= 3.0 (trolley hits rail end, V=0)
 
 Dynamics (Lagrangian, 2-DOF underactuated):
@@ -98,9 +98,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_TH_MAX   1.04720f // 60 deg = pi/3, reward normalisation
         #define OC_XD_MAX   2.0f     // max trolley velocity, reward normalisation
         #define OC_THD_MAX  3.0f     // max rope angular velocity, reward normalisation
-        #define OC_W_TH     0.5f     // rope angle penalty (keep load vertical)
-        #define OC_W_THD    0.3f     // rope angular velocity penalty (damp swing)
-        #define OC_W_PROG   0.2f     // progress reward (incentive to reach goal fast)
+        #define OC_W_X      0.15f    // position penalty weight
+        #define OC_W_TH     0.35f    // rope angle penalty (keep load vertical)
+        #define OC_W_XD     0.30f    // trolley velocity penalty (incentive to brake)
+        #define OC_W_THD    0.20f    // rope angular velocity penalty
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
         #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad ~4.6 deg)
         #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s) - must brake to stop
@@ -136,14 +137,17 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *ntheta  = theta  + OC_TAU * thetad;
             *nthetad = thetad + OC_TAU * thetaacc;
 
-            // --- Reward: penalise swing + reward progress toward goal -----
-            // Braking enforced by goal condition requiring |xd| <= GOAL_XD.
-            float thn      = *ntheta  / OC_TH_MAX;
-            float thdn     = *nthetad / OC_THD_MAX;
-            float progress = 1.0f - fabsf(*nx - OC_X_TARGET) / OC_X_MAX;  // 0..1
-            *reward = progress * OC_W_PROG
-                    + (1.0f - OC_W_PROG) * (1.0f - OC_W_TH  * thn  * thn
-                                                  - OC_W_THD * thdn * thdn);
+            // --- Reward: position + swing + velocity ----------------------
+            // Normalise position by 2*X_MAX so penalty stays in [0,1]
+            // regardless of where the target is on the rail.
+            float xn   = (*nx - OC_X_TARGET) / (2.0f * OC_X_MAX);
+            float thn  = *ntheta  / OC_TH_MAX;
+            float xdn  = *nxd     / OC_XD_MAX;
+            float thdn = *nthetad / OC_THD_MAX;
+            *reward = 1.0f - OC_W_X   * xn   * xn
+                           - OC_W_TH  * thn  * thn
+                           - OC_W_XD  * xdn  * xdn
+                           - OC_W_THD * thdn * thdn;
 
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
@@ -240,9 +244,9 @@ def _step_python(state, force, target_x: float = 0.0):
     thn  = ntheta  / _TH_MAX
     xdn  = nxd     / 2.0
     thdn = nthetad / 3.0
-    progress = 1.0 - abs(nx - target_x) / _X_MAX
-    reward = (progress * 0.2
-              + 0.8 * (1.0 - 0.5 * thn**2 - 0.3 * thdn**2))
+    xn   = (nx - target_x) / (2.0 * _X_MAX)
+    reward = (1.0 - 0.15 * xn**2 - 0.35 * thn**2
+                  - 0.30 * xdn**2 - 0.20 * thdn**2)
     return next_state, reward, terminated
 
 
