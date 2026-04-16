@@ -94,17 +94,11 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_m      0.5f     // load mass (kg)
         #define OC_L      1.5f     // rope length (m)
         #define OC_TAU    0.02f    // integration timestep (s)
-        #define OC_X_MAX    3.0f     // rail half-length: terminate at |x| >= X_MAX
-        #define OC_TH_MAX   1.04720f // 60 deg = pi/3, reward normalisation
-        #define OC_XD_MAX   2.0f     // max trolley velocity, reward normalisation
-        #define OC_THD_MAX  3.0f     // max rope angular velocity, reward normalisation
-        #define OC_W_X      0.40f    // position penalty weight
-        #define OC_W_TH     0.30f    // rope angle penalty (keep load vertical)
-        #define OC_W_XD     0.20f    // trolley velocity penalty (incentive to brake)
-        #define OC_W_THD    0.10f    // rope angular velocity penalty
+        #define OC_X_MAX    3.0f
+        #define OC_TH_MAX   1.04720f // 60 deg = pi/3
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
-        #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad ~4.6 deg)
-        #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s) - must brake to stop
+        #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad)
+        #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s)
 
         __device__ void step_dynamics(
             float x, float xd, float theta, float thetad, float force,
@@ -137,17 +131,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *ntheta  = theta  + OC_TAU * thetad;
             *nthetad = thetad + OC_TAU * thetaacc;
 
-            // --- Reward: position + swing + velocity ----------------------
-            // Normalise position by 2*X_MAX so penalty stays in [0,1]
-            // regardless of where the target is on the rail.
-            float xn   = (*nx - OC_X_TARGET) / (2.0f * OC_X_MAX);
-            float thn  = *ntheta  / OC_TH_MAX;
-            float xdn  = *nxd     / OC_XD_MAX;
-            float thdn = *nthetad / OC_THD_MAX;
-            *reward = 1.0f - OC_W_X   * xn   * xn
-                           - OC_W_TH  * thn  * thn
-                           - OC_W_XD  * xdn  * xdn
-                           - OC_W_THD * thdn * thdn;
+            // --- Reward: position + swing only ----------------------------
+            float xn  = (*nx - OC_X_TARGET) / (2.0f * OC_X_MAX);
+            float thn = *ntheta / OC_TH_MAX;
+            *reward = 1.0f - 0.5f * xn * xn - 0.5f * thn * thn;
 
             // --- Terminate: rail end (failure) OR goal reached (success) --
             bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
@@ -244,9 +231,8 @@ def _step_python(state, force, target_x: float = 0.0):
     thn  = ntheta  / _TH_MAX
     xdn  = nxd     / 2.0
     thdn = nthetad / 3.0
-    xn   = (nx - target_x) / (2.0 * _X_MAX)
-    reward = (1.0 - 0.40 * xn**2 - 0.30 * thn**2
-                  - 0.20 * xdn**2 - 0.10 * thdn**2)
+    xn    = (nx - target_x) / (2.0 * _X_MAX)
+    reward = 1.0 - 0.5 * xn**2 - 0.5 * thn**2
     return next_state, reward, terminated
 
 
