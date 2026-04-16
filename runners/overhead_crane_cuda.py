@@ -81,12 +81,15 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_m      0.5f     // load mass (kg)
         #define OC_L      1.5f     // rope length (m)
         #define OC_TAU    0.02f    // integration timestep (s)
-        #define OC_X_MAX  3.0f     // rail half-length: terminate at |x| >= X_MAX
-        #define OC_TH_MAX 1.04720f // 60 deg = pi/3, reward normalisation
-        #define OC_XD_MAX 2.0f     // max trolley velocity, reward normalisation
-        #define OC_W_X    0.4f     // position penalty weight
-        #define OC_W_TH   0.3f     // angle penalty weight
-        #define OC_W_XD   0.3f     // velocity penalty weight (forces braking at goal)
+        #define OC_X_MAX    3.0f     // rail half-length: terminate at |x| >= X_MAX
+        #define OC_TH_MAX   1.04720f // 60 deg = pi/3, reward normalisation
+        #define OC_XD_MAX   2.0f     // max trolley velocity, reward normalisation
+        #define OC_W_X      0.4f     // position penalty weight
+        #define OC_W_TH     0.3f     // angle penalty weight
+        #define OC_W_XD     0.3f     // velocity penalty weight
+        #define OC_GOAL_X   0.15f    // goal position tolerance (m)
+        #define OC_GOAL_TH  0.05f    // goal angle tolerance (rad)
+        #define OC_GOAL_XD  0.10f    // goal velocity tolerance (m/s)
 
         __device__ void step_dynamics(
             float x, float xd, float theta, float thetad, float force,
@@ -125,16 +128,46 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             float xdn = *nxd    / OC_XD_MAX;
             *reward = 1.0f - OC_W_X * xn * xn - OC_W_TH * thn * thn - OC_W_XD * xdn * xdn;
 
-            // --- Terminate if trolley hits rail end -----------------------
-            *terminated = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
+            // --- Terminate: rail end (failure) OR goal reached (success) --
+            bool hit_wall = (*nx <= -OC_X_MAX) || (*nx >= OC_X_MAX);
+            bool at_goal  = (fabsf(*nx)   <= OC_GOAL_X)
+                         && (fabsf(*ntheta) <= OC_GOAL_TH)
+                         && (fabsf(*nxd)    <= OC_GOAL_XD);
+            *terminated = hit_wall || at_goal;
         }
         '''
 
     def _terminal_fn(self, states: np.ndarray):
-        """Mark states at rail ends as absorbing terminals (V=0)."""
-        x    = states[:, 0]
-        mask = (x <= -_X_MAX) | (x >= _X_MAX)
-        return mask, 0.0
+        """
+        Two kinds of terminal states, both marked here with value=0.
+        Goal states are upgraded to V=1/(1-gamma) in _allocate_tensors_and_compile.
+        """
+        x   = states[:, 0]
+        xd  = states[:, 1]
+        th  = states[:, 2]
+        fail_mask = (x <= -_X_MAX) | (x >= _X_MAX)
+        goal_mask = (
+            (np.abs(x)  <= 0.15) &
+            (np.abs(th) <= 0.05) &
+            (np.abs(xd) <= 0.10)
+        )
+        self._goal_mask = goal_mask   # stash for use in override below
+        return (fail_mask | goal_mask), 0.0
+
+    def _allocate_tensors_and_compile(self) -> None:
+        """Extend base allocation to set goal states to the maximum value."""
+        import cupy as cp
+        super()._allocate_tensors_and_compile()
+        if hasattr(self, "_goal_mask") and np.any(self._goal_mask):
+            goal_value = float(1.0 / (1.0 - self.config.gamma))
+            d_goal = cp.asarray(self._goal_mask, dtype=cp.bool_)
+            self.d_value_function[d_goal]     = goal_value
+            self.d_new_value_function[d_goal] = goal_value
+            from loguru import logger
+            logger.info(
+                f"Goal states: {self._goal_mask.sum():,} "
+                f"(value={goal_value:.1f} = 1/(1-gamma))"
+            )
 
 
 # ---- Python step (for inference, no CUDA needed) -------------------------
@@ -164,7 +197,9 @@ def _step_python(state, force):
     nthetad = thetad + tau * thetaacc
 
     next_state = np.array([nx, nxd, ntheta, nthetad], dtype=np.float32)
-    terminated = abs(nx) >= _X_MAX
+    hit_wall  = abs(nx) >= _X_MAX
+    at_goal   = abs(nx) <= 0.15 and abs(ntheta) <= 0.05 and abs(nxd) <= 0.10
+    terminated = hit_wall or at_goal
     xn  = nx     / _X_MAX
     thn = ntheta / _TH_MAX
     xdn = nxd    / 2.0
@@ -368,13 +403,15 @@ def evaluate(
             state, reward, terminated = _step_python(state, force)
             total_reward += reward
 
-            if abs(state[0]) < 0.15 and abs(state[2]) < 0.05 and abs(state[1]) < 0.1:
-                reached_goal = True
-
             if terminated:
+                reached_goal = (
+                    abs(state[0]) <= 0.15 and
+                    abs(state[2]) <= 0.05 and
+                    abs(state[1]) <= 0.10
+                )
                 break
 
-        outcome = "REACHED" if reached_goal else ("HIT WALL" if terminated else "TIMEOUT")
+        outcome = "GOAL" if reached_goal else ("HIT WALL" if terminated else "TIMEOUT")
         print(
             f"Episode {ep + 1}: {step + 1:4d} steps | "
             f"reward = {total_reward:7.1f} | {outcome:9s} | "
