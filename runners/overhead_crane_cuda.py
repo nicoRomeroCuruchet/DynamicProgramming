@@ -362,11 +362,11 @@ def _render_frame_pygame(screen, clock, state, target_x: float = 0.0, step: int 
         _pygame_font = pygame.font.SysFont("monospace", 15)
     font = _pygame_font
 
-    x_goal_dist = abs(state[0])
+    x_goal_dist = abs(state[0] - target_x)
     th_deg = np.degrees(theta)
     info = [
         f"step : {step:4d}",
-        f"x    : {state[0]:+.3f} m  (goal: 0.00)",
+        f"x    : {state[0]:+.3f} m  (goal: {target_x:+.2f})",
         f"theta: {th_deg:+.2f} deg",
         f"dist : {x_goal_dist:.3f} m",
     ]
