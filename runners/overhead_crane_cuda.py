@@ -98,10 +98,10 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         #define OC_TH_MAX   1.04720f // 60 deg = pi/3, reward normalisation
         #define OC_XD_MAX   2.0f     // max trolley velocity, reward normalisation
         #define OC_THD_MAX  3.0f     // max rope angular velocity, reward normalisation
-        #define OC_W_X      0.15f    // position penalty weight
-        #define OC_W_TH     0.35f    // rope angle penalty (keep load vertical)
-        #define OC_W_XD     0.30f    // trolley velocity penalty (incentive to brake)
-        #define OC_W_THD    0.20f    // rope angular velocity penalty
+        #define OC_W_X      0.40f    // position penalty weight
+        #define OC_W_TH     0.30f    // rope angle penalty (keep load vertical)
+        #define OC_W_XD     0.20f    // trolley velocity penalty (incentive to brake)
+        #define OC_W_THD    0.10f    // rope angular velocity penalty
         #define OC_GOAL_X   0.20f    // goal position tolerance (m)
         #define OC_GOAL_TH  0.08f    // goal angle tolerance (rad ~4.6 deg)
         #define OC_GOAL_XD  0.15f    // goal velocity tolerance (m/s) - must brake to stop
@@ -245,8 +245,8 @@ def _step_python(state, force, target_x: float = 0.0):
     xdn  = nxd     / 2.0
     thdn = nthetad / 3.0
     xn   = (nx - target_x) / (2.0 * _X_MAX)
-    reward = (1.0 - 0.15 * xn**2 - 0.35 * thn**2
-                  - 0.30 * xdn**2 - 0.20 * thdn**2)
+    reward = (1.0 - 0.40 * xn**2 - 0.30 * thn**2
+                  - 0.20 * xdn**2 - 0.10 * thdn**2)
     return next_state, reward, terminated
 
 
