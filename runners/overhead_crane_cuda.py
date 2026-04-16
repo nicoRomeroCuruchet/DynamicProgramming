@@ -314,18 +314,25 @@ def evaluate(
     n_episodes: int = 5,
     render: bool = False,
     start_x: float = 2.0,
+    record_path: Path = None,
 ) -> None:
     from utils.barycentric import get_optimal_action
 
+    recording = record_path is not None
+    do_render  = render or recording   # recording always needs a surface
+
     rng = np.random.default_rng(seed=42)
 
-    if render:
+    if do_render:
         import pygame
         pygame.init()
         pygame.display.init()
-        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H))
+        flags = 0 if render else pygame.NOFRAME
+        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H), flags)
         pygame.display.set_caption("Overhead Crane -- CUDA Policy Iteration")
         clock = pygame.time.Clock()
+
+    all_frames = []   # collected across all episodes when recording
 
     for ep in range(n_episodes):
         x0     = float(np.clip(start_x + rng.uniform(-0.1, 0.1), -2.8, 2.8))
@@ -335,13 +342,18 @@ def evaluate(
         reached_goal = False
 
         for step in range(1000):
-            if render:
+            if do_render:
                 import pygame
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         pygame.quit()
                         return
                 _render_frame_pygame(screen, clock, state, target_x=0.0, step=step)
+
+                if recording:
+                    # pygame surface is (W, H, 3); imageio expects (H, W, 3)
+                    frame = pygame.surfarray.array3d(screen)
+                    all_frames.append(frame.transpose(1, 0, 2))
 
             force = float(get_optimal_action(
                 state,
@@ -365,9 +377,22 @@ def evaluate(
             f"x={state[0]:+.3f} m  theta={np.degrees(state[2]):+.2f} deg"
         )
 
-    if render:
+    if do_render:
         import pygame
         pygame.quit()
+
+    if recording and all_frames:
+        import imageio
+        record_path = Path(record_path)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        suffix = record_path.suffix.lower()
+        if suffix == ".gif":
+            imageio.mimsave(str(record_path), all_frames, fps=_RENDER_FPS)
+        else:
+            # MP4 / AVI — requires imageio[ffmpeg]
+            imageio.mimsave(str(record_path), all_frames, fps=_RENDER_FPS,
+                            macro_block_size=1)
+        print(f"Video saved to {record_path.resolve()}")
 
 
 # ---- Visualisation -------------------------------------------------------
@@ -445,6 +470,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--render",    action="store_true",
                         help="Render evaluation episodes with pygame")
+    parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
+                        help="Save evaluation video to PATH (.gif or .mp4). "
+                             "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",  type=int, default=5,
                         help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--start-x",   type=float, default=2.0,
@@ -470,6 +498,7 @@ if __name__ == "__main__":
         print("[*] Training new policy...")
         pi = train(args.save_path)
 
-    evaluate(pi, n_episodes=args.episodes, render=args.render, start_x=args.start_x)
+    evaluate(pi, n_episodes=args.episodes, render=args.render,
+             start_x=args.start_x, record_path=args.record)
     plot_value_slice(pi)
     plot_policy_slice(pi)
