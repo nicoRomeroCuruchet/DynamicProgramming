@@ -132,7 +132,7 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
             *nthetad = thetad + OC_TAU * thetaacc;
 
             // --- Reward: swing penalty weighted higher for heavy load (5:1) ---
-            float xn  = (*nx - OC_X_TARGET) / (2.0f * OC_X_MAX);
+            float xn  = (*nx - OC_X_TARGET) / OC_X_MAX;
             float thn = *ntheta / OC_TH_MAX;
             *reward = 1.0f - 0.3f * xn * xn - 0.7f * thn * thn;
 
