@@ -155,6 +155,22 @@ class OverheadCraneCuda(CudaPolicyIteration4D):
         '''
         return src.replace("__OC_X_TARGET__", f"{self.target_x:.6f}")
 
+    def save(self, filepath) -> None:
+        """Save policy + target_x."""
+        super().save(filepath)
+        filepath = Path(filepath).with_suffix(".npz")
+        data = dict(np.load(filepath))
+        data["target_x"] = np.float32(self.target_x)
+        np.savez(filepath, **data)
+
+    @classmethod
+    def load(cls, filepath):
+        """Load policy and restore target_x."""
+        instance = super().load(filepath)
+        data = np.load(Path(filepath).with_suffix(".npz"))
+        instance.target_x = float(data["target_x"]) if "target_x" in data else 0.0
+        return instance
+
     def _terminal_fn(self, states: np.ndarray):
         """
         Two kinds of terminal states, both marked here with value=0.
