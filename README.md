@@ -20,66 +20,98 @@ The implementation is based on the theoretical framework described in **[Continu
 
 ### The Continuous Optimal Control Problem
 
-The framework targets systems governed by first-order ODEs:
+The framework targets dynamical systems governed by first-order ODEs:
 
-$$\dot{x}(t) = f(x(t), u(t)), \quad x(0) = x_0$$
+```
+ẋ(t) = f(x(t), u(t)),    x(0) = x₀
+```
 
-where $x(t) \in \Omega \subset \mathbb{R}^d$ is the continuous state and $u(t) \in \mathcal{U}$ is the control input. The goal is to find a policy $\pi: \Omega \to \mathcal{U}$ that maximises the discounted cumulative reward:
+where `x(t) ∈ Ω ⊂ ℝᵈ` is the continuous state and `u(t) ∈ U` is the control input.  
+The goal is to find a policy `π: Ω → U` that maximises the **discounted cumulative reward**:
 
-$$V(x) = \sup_{u(\cdot)} \left\{ \int_0^{\infty} \gamma^t\, r(x(t), u(t))\, dt \right\}, \quad \gamma \in (0, 1)$$
+```
+V(x) = sup  ∫₀^∞  γᵗ · r(x(t), u(t)) dt        γ ∈ (0, 1)
+        u(·)
+```
 
-### Hamilton-Jacobi-Bellman Equation
+`V(x)` is called the **value function** — the maximum expected return starting from state `x`.
 
-The exact optimality condition is the **HJB PDE**:
+---
 
-$$0 = V(x)\ln\gamma + \sup_{u \in \mathcal{U}} \left\{ \nabla V(x) \cdot f(x, u) + r(x, u) \right\}$$
+### Hamilton-Jacobi-Bellman (HJB) Equation
 
-This equation is analytically intractable for all but the simplest systems. The paper provides a rigorous discretisation scheme that converges to its solution.
+The necessary and sufficient optimality condition is the **HJB PDE** (Theorem 2.5):
+
+```
+0 = V(x)·ln(γ)  +  sup  { ∇V(x)·f(x,u)  +  r(x,u) }
+                    u∈U
+```
+
+This non-linear first-order PDE is analytically intractable for all but the simplest systems. The paper provides a rigorous discretisation scheme that converges to its solution as the grid resolution increases.
+
+---
 
 ### Bellman Principle & Discretisation
 
-The **Dynamic Programming Principle** (Theorem 2.3) decomposes the value function:
+The **Dynamic Programming Principle** (Theorem 2.3) enables recursive decomposition:
 
-$$V(x) = \sup_{u \in \mathcal{U}} \left\{ r(x, u)\,\tau + \gamma^\tau\, V\!\left(x + \tau f(x, u)\right) \right\} + \mathcal{O}(\tau^2)$$
+```
+V(x) = sup  { r(x,u)·τ  +  γᵗ · V(x + τ·f(x,u)) }  +  O(τ²)
+        u∈U
+```
 
-The continuous state space $\Omega$ is discretised into a **simplicial mesh** $\Sigma^\delta$ with maximum diameter $\delta$. When the forward Euler step $\eta = x + \tau f(x, u)$ lands off-grid, the value is recovered via **barycentric interpolation** over the enclosing simplex:
+The continuous state space is discretised into a **uniform grid** with spacing `δ`. After a forward Euler step, the next state `η = x + τ·f(x,u)` typically falls between grid nodes. Its value is recovered via **barycentric interpolation** over the enclosing hypercube:
 
-$$V(\eta) \approx \sum_i p(\eta \mid \xi_i)\, V(\xi_i)$$
+```
+V(η) ≈ Σᵢ  p(η | ξᵢ) · V(ξᵢ)
+```
 
-where the weights $p(\eta \mid \xi_i) \geq 0$ satisfy $\sum_i p = 1$ and $\sum_i p\, \xi_i = \eta$. This interpolation is exact (second-order) and requires no explicit error correction.
+where the weights `p(η | ξᵢ) ≥ 0` satisfy `Σ p = 1` and `Σ p·ξᵢ = η` (convex combination). This preserves second-order accuracy without explicit error correction.
 
-The resulting **barycentric dynamic programming operator** $F^\delta$ is a **contraction mapping** (Lemma 2.7):
+---
 
-$$\| F^\delta[V] - F^\delta[W] \|_\infty \leq \underbrace{\gamma^{\tau_{\min}}}_{\lambda < 1} \| V - W \|_\infty$$
+### Convergence Guarantee
 
-By the Banach Fixed-Point Theorem, iterating $V_{k+1} = F^\delta[V_k]$ converges to a unique fixed point $V^\delta$ — the discrete approximation of the continuous value function — regardless of the initialisation.
+The barycentric DP operator `Fᵟ` is a **contraction mapping** (Lemma 2.7):
 
-### Policy Iteration
+```
+‖Fᵟ[V] − Fᵟ[W]‖∞  ≤  λ · ‖V − W‖∞        λ = γ^τ_min < 1
+```
 
-**Policy Iteration** alternates two steps until convergence:
+By the **Banach Fixed-Point Theorem**, iterating `V_{k+1} = Fᵟ[V_k]` converges to a unique fixed point `V*` regardless of initialisation — the discrete approximation of the continuous value function.
 
-| Step | Operation |
+---
+
+### Policy Iteration Algorithm
+
+**Policy Iteration** (Algorithm 1) alternates two steps until the policy no longer changes:
+
+| Step | What it does |
 |---|---|
-| **Policy Evaluation** | Iterate the Bellman expectation operator for the current policy $\pi$ until $\|V_{k+1} - V_k\|_\infty < \theta$ |
-| **Policy Improvement** | Greedily update $\pi(s) \leftarrow \arg\max_a \sum_{s'} p(s'\|s,a)[r + \gamma V(s')]$ |
+| **Policy Evaluation** | Repeatedly apply the Bellman expectation operator under the current policy until `‖V_{k+1} − V_k‖∞ < θ` |
+| **Policy Improvement** | Update every state greedily: `π(s) ← argmax_a  Σ_{s'} p(s'|s,a) · [r + γ·V(s')]` |
 
-Theorem 3.1 guarantees convergence to the **globally optimal policy** in a finite number of iterations.
+Theorem 3.1 guarantees convergence to the **globally optimal policy** in a finite number of outer iterations.
+
+---
 
 ### CUDA Parallelisation
 
-Each GPU thread independently evaluates the Bellman supremum at one grid node:
+The key insight is that the Bellman update at each grid node is **fully independent** — no communication between nodes is needed. This maps perfectly onto a GPU:
 
 ```
-for each node ξᵢ  (in parallel, one CUDA thread per node)
+for each grid node ξᵢ  (one CUDA thread per node, all in parallel)
+    best_Q ← -∞
     for each action u ∈ U
-        η  ← ξᵢ + τ · f(ξᵢ, u)          // forward Euler
-        V* ← barycentric_interp(η, V)     // 2ᵈ-corner lookup
-        Q  ← r(ξᵢ, u) + γ^τ · V*
-    π(ξᵢ) ← argmax Q
-    V(ξᵢ)  ← max Q
+        η      ← ξᵢ + τ · f(ξᵢ, u)          // forward Euler step
+        V_next ← barycentric_interp(η, V)     // 2ᵈ-corner lookup
+        Q      ← r(ξᵢ, u) + γ^τ · V_next     // Bellman target
+        if Q > best_Q:  best_Q ← Q,  best_u ← u
+    V_new(ξᵢ) ← best_Q
+    π(ξᵢ)     ← best_u
 ```
 
-No inter-thread communication is needed during evaluation — the entire value update is embarrassingly parallel.
+The environment dynamics `f` and reward `r` are injected as a raw CUDA C device function compiled at runtime via **NVRTC** — no pre-compilation or Makefiles needed.
 
 ---
 
@@ -93,12 +125,12 @@ Classic inverted pendulum. A force is applied to a cart to keep a pole balanced 
 
 | State | Bounds |
 |---|---|
-| Cart position $x$ | $[-2.5, 2.5]$ m |
-| Cart velocity $\dot{x}$ | $[-5, 5]$ m/s |
-| Pole angle $\theta$ | $[-0.25, 0.25]$ rad |
-| Pole angular velocity $\dot{\theta}$ | $[-5, 5]$ rad/s |
+| Cart position | [-2.5, 2.5] m |
+| Cart velocity | [-5, 5] m/s |
+| Pole angle | [-0.25, 0.25] rad |
+| Pole angular velocity | [-5, 5] rad/s |
 
-**Actions:** $\{-10, +10\}$ N &nbsp;|&nbsp; **Grid:** $30^4$ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration4D`
+**Actions:** {-10, +10} N &nbsp;|&nbsp; **Grid:** 30⁴ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration4D`
 
 ![CartPole](gifs/cartpole.gif)
 
@@ -110,10 +142,10 @@ Swing up and stabilise a free pendulum at the upright position.
 
 | State | Bounds |
 |---|---|
-| Angle $\theta$ | $[-\pi, \pi]$ rad |
-| Angular velocity $\dot{\theta}$ | $[-8, 8]$ rad/s |
+| Angle θ | [-π, π] rad |
+| Angular velocity θ̇ | [-8, 8] rad/s |
 
-**Actions:** 21 torque values in $[-2, 2]$ N·m &nbsp;|&nbsp; **Grid:** $200^2$ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration2D`
+**Actions:** 21 torque values in [-2, 2] N·m &nbsp;|&nbsp; **Grid:** 200² nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration2D`
 
 ![Pendulum](gifs/pendulum.gif)
 
@@ -125,10 +157,10 @@ Drive an underpowered car out of a valley. Requires learning to build momentum b
 
 | State | Bounds |
 |---|---|
-| Position | $[-1.2, 0.6]$ |
-| Velocity | $[-0.07, 0.07]$ |
+| Position | [-1.2, 0.6] |
+| Velocity | [-0.07, 0.07] |
 
-**Actions:** $\{-1, 0, +1\}$ &nbsp;|&nbsp; **Grid:** $200^2$ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration2D`
+**Actions:** {-1, 0, +1} &nbsp;|&nbsp; **Grid:** 200² nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration2D`
 
 ![Mountain Car](gifs/mountain_car.gif)
 
@@ -140,10 +172,10 @@ Same as Mountain Car but with a continuous action space.
 
 | State | Bounds |
 |---|---|
-| Position | $[-1.2, 0.6]$ |
-| Velocity | $[-0.07, 0.07]$ |
+| Position | [-1.2, 0.6] |
+| Velocity | [-0.07, 0.07] |
 
-**Actions:** 21 force values in $[-1, 1]$ &nbsp;|&nbsp; **Grid:** $200^2$ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration2D`
+**Actions:** 21 force values in [-1, 1] &nbsp;|&nbsp; **Grid:** 200² nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration2D`
 
 ![Continuous Mountain Car](gifs/continuous_mountain_car.gif)
 
@@ -155,16 +187,16 @@ Two poles of different lengths balanced simultaneously on a single cart. 6-dimen
 
 | State | Bounds |
 |---|---|
-| Cart position $x$ | $[-2.4, 2.4]$ m |
-| Cart velocity $\dot{x}$ | $[-3, 3]$ m/s |
-| Pole 1 angle $\theta_1$ | $[-0.3, 0.3]$ rad |
-| Pole 1 angular velocity $\dot{\theta}_1$ | $[-3, 3]$ rad/s |
-| Pole 2 angle $\theta_2$ | $[-0.3, 0.3]$ rad |
-| Pole 2 angular velocity $\dot{\theta}_2$ | $[-3, 3]$ rad/s |
+| Cart position | [-2.4, 2.4] m |
+| Cart velocity | [-3, 3] m/s |
+| Pole 1 angle θ₁ | [-0.3, 0.3] rad |
+| Pole 1 angular velocity θ̇₁ | [-3, 3] rad/s |
+| Pole 2 angle θ₂ | [-0.3, 0.3] rad |
+| Pole 2 angular velocity θ̇₂ | [-3, 3] rad/s |
 
-**Actions:** $\{-10, 0, +10\}$ N &nbsp;|&nbsp; **Grid:** $12^6$ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration6D`
+**Actions:** {-10, 0, +10} N &nbsp;|&nbsp; **Grid:** 12⁶ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration6D`
 
-> **Note:** Memory scales as $B^6$. Recommended: `--bins 12` (~90 MB), `--bins 15` (~420 MB), `--bins 20` (~2.1 GB).
+> **Note:** Memory scales as B⁶. Recommended: `--bins 12` (~90 MB), `--bins 15` (~420 MB), `--bins 20` (~2.1 GB).
 
 ![Double CartPole](gifs/double_cartpole.gif)
 
@@ -172,22 +204,27 @@ Two poles of different lengths balanced simultaneously on a single cart. 6-dimen
 
 ### Overhead Crane (Anti-Sway)
 
-A trolley moves along a fixed rail carrying a suspended load. Goal: transport the load from one end of the rail to the other while minimising swing. Lagrangian dynamics with a 2×2 mass matrix solved analytically at each step.
+A trolley moves along a fixed rail carrying a suspended load. Goal: transport the load from one end of the rail to the other while minimising swing.
 
-$$H = \begin{bmatrix} M + m & mL\cos\theta \\ mL\cos\theta & mL^2 \end{bmatrix}, \qquad \det(H) = mL^2(M + m\sin^2\theta) > 0$$
+Dynamics follow the **Lagrangian formulation** with a 2×2 mass matrix inverted analytically at each timestep:
+
+```
+H = | M+m      m·L·cosθ |       det(H) = m·L²·(M + m·sin²θ) > 0
+    | m·L·cosθ  m·L²    |
+```
 
 | State | Bounds |
 |---|---|
-| Trolley position $x$ | $[-3, 3]$ m |
-| Trolley velocity $\dot{x}$ | $[-4, 4]$ m/s |
-| Rope angle $\theta$ | $[-\pi/2 \cdot 1.1,\; \pi/2 \cdot 1.1]$ rad |
-| Rope angular velocity $\dot{\theta}$ | $[-4, 4]$ rad/s |
+| Trolley position | [-3, 3] m |
+| Trolley velocity | [-4, 4] m/s |
+| Rope angle θ | [-π/2·1.1, π/2·1.1] rad (~±99°) |
+| Rope angular velocity θ̇ | [-4, 4] rad/s |
 
-**Physical parameters:** $M = 1$ kg (trolley), $m = 5$ kg (load), $L = 1.5$ m (rope), $g = 9.81$ m/s²
+**Physical parameters:** M = 1 kg (trolley), m = 5 kg (load), L = 1.5 m (rope), g = 9.81 m/s²
 
-**Actions:** $\{-30, -15, 0, +15, +30\}$ N &nbsp;|&nbsp; **Grid:** $30^4$ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration4D`
+**Actions:** {-30, -15, 0, +15, +30} N &nbsp;|&nbsp; **Grid:** 30⁴ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration4D`
 
-**Reward:** $1 - 0.15\,x_n^2 - 0.15\,\dot{x}_n^2 - 0.45\,\theta_n^2 - 0.25\,\dot{\theta}_n^2$, with each term normalised by its respective grid bound.
+**Reward:** `1 - 0.15·xn² - 0.15·ẋn² - 0.45·θn² - 0.25·θ̇n²`  (each term normalised by its grid bound)
 
 ![Overhead Crane](gifs/overhead_crane.gif)
 
