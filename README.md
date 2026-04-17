@@ -30,7 +30,7 @@ where `x(t) ∈ Ω ⊂ ℝᵈ` is the continuous state and `u(t) ∈ U` is the c
 The goal is to find a policy `π: Ω → U` that maximises the **discounted cumulative reward**:
 
 ```
-V(x) = sup  ∫₀^∞  γᵗ · r(x(t), u(t)) dt        γ ∈ (0, 1)
+V(x) = sup  ∫ γᵗ · r(x(t), u(t)) dt        γ ∈ (0, 1)
         u(·)
 ```
 
