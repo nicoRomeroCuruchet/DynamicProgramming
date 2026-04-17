@@ -467,7 +467,7 @@ def evaluate(
         record_path.parent.mkdir(parents=True, exist_ok=True)
         suffix = record_path.suffix.lower()
         if suffix == ".gif":
-            imageio.mimsave(str(record_path), all_frames, fps=_RENDER_FPS)
+            imageio.mimsave(str(record_path), all_frames, fps=_RENDER_FPS, loop=0)
         else:
             # MP4 / AVI — requires imageio[ffmpeg]
             imageio.mimsave(str(record_path), all_frames, fps=_RENDER_FPS,

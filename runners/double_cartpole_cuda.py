@@ -403,7 +403,7 @@ def evaluate(
         record_path = Path(record_path)
         record_path.parent.mkdir(parents=True, exist_ok=True)
         if record_path.suffix.lower() == ".gif":
-            imageio.mimsave(str(record_path), all_frames, fps=50)
+            imageio.mimsave(str(record_path), all_frames, fps=50, loop=0)
         else:
             imageio.mimsave(str(record_path), all_frames, fps=50, macro_block_size=1)
         print(f"Video saved to {record_path.resolve()}")
