@@ -195,7 +195,13 @@ _SCREEN_H   = 400
 _RENDER_FPS = 50
 
 def _render_frame_pygame(screen, clock, state):
-    """Draw cart + pole on a pygame surface. Pole can swing below the cart."""
+    """Draw cart + pole. theta=0 upright (top), theta=pi hanging (bottom).
+
+    Pygame's y-axis points DOWN, so we draw on a surface then flip vertically.
+    This matches the standard physics convention: positive y = up.
+    cart_y=200 (center) means the axle stays at center after the flip, and the
+    pole can extend both above (upright) and below (hanging).
+    """
     import pygame
     from pygame import gfxdraw
 
@@ -207,7 +213,7 @@ def _render_frame_pygame(screen, clock, state):
     cart_width  = 50.0
     cart_height = 30.0
     axle_offset = cart_height / 4.0
-    cart_y      = 200              # center of screen — pole can hang below
+    cart_y      = 200              # center of screen; symmetric after vertical flip
 
     pole_w = 10.0
     pole_l = scale * (2 * 0.5)    # 125 px
@@ -217,27 +223,28 @@ def _render_frame_pygame(screen, clock, state):
     surf = pygame.Surface((_SCREEN_W, _SCREEN_H))
     surf.fill((255, 255, 255))
 
-    # Ground line
+    # Ground line (at cart_y; after flip this stays at y=200)
     gfxdraw.hline(surf, 0, _SCREEN_W, cart_y, (180, 180, 180))
 
     # Cart
-    l = -cart_width / 2;  r = cart_width / 2
-    t =  cart_height / 2; b = -cart_height / 2
+    lc = -cart_width / 2;  rc = cart_width / 2
+    tc =  cart_height / 2; bc = -cart_height / 2
     cart_coords = [(c[0] + cart_x, c[1] + cart_y)
-                   for c in [(l, b), (l, t), (r, t), (r, b)]]
+                   for c in [(lc, bc), (lc, tc), (rc, tc), (rc, bc)]]
     gfxdraw.aapolygon(surf, cart_coords, (0, 0, 0))
     gfxdraw.filled_polygon(surf, cart_coords, (0, 0, 0))
 
     axle_x = int(cart_x)
     axle_y = int(cart_y + axle_offset)
 
-    # Pole — theta=0 points up, theta=pi points down
+    # Pole — rotate_rad(-theta) + vertical flip = correct upright orientation.
+    # Without the negation, positive theta would rotate the wrong way after the flip.
     p_coords = []
     for coord in [(-pole_w/2, -pole_w/2),
                   (-pole_w/2,  pole_l - pole_w/2),
                   ( pole_w/2,  pole_l - pole_w/2),
                   ( pole_w/2, -pole_w/2)]:
-        v = pygame.math.Vector2(coord).rotate_rad(theta)
+        v = pygame.math.Vector2(coord).rotate_rad(-theta)
         p_coords.append((v.x + cart_x, v.y + axle_y))
     gfxdraw.aapolygon(surf, p_coords, (70, 130, 180))
     gfxdraw.filled_polygon(surf, p_coords, (70, 130, 180))
@@ -245,17 +252,20 @@ def _render_frame_pygame(screen, clock, state):
     gfxdraw.aacircle(surf, axle_x, axle_y, int(pole_w / 2), (129, 132, 203))
     gfxdraw.filled_circle(surf, axle_x, axle_y, int(pole_w / 2), (129, 132, 203))
 
-    # Info overlay
+    # Flip vertically: pygame y-down → visual y-up (theta=0 pole now points UP)
+    surf = pygame.transform.flip(surf, False, True)
+    screen.blit(surf, (0, 0))
+
+    # Info overlay drawn directly on screen (after flip) so it stays at the top
     font = pygame.font.SysFont("monospace", 14)
     lines = [
         f"x     : {state[0]:+.3f} m",
-        f"theta : {np.degrees(state[2]):+.1f} deg",
+        f"theta : {np.degrees(state[2]):+.1f} deg  (0=up, ±180=down)",
         f"th_dot: {state[3]:+.2f} rad/s",
     ]
     for i, txt in enumerate(lines):
-        surf.blit(font.render(txt, True, (60, 60, 60)), (8, 8 + i * 18))
+        screen.blit(font.render(txt, True, (60, 60, 60)), (8, 8 + i * 18))
 
-    screen.blit(surf, (0, 0))
     pygame.event.pump()
     clock.tick(_RENDER_FPS)
     pygame.display.flip()
