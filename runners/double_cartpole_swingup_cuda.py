@@ -19,14 +19,23 @@ Actions: 5 force values {-30, -15, 0, +15, +30} applied to the cart.
            More authority is needed to pump enough energy into a double
            pendulum than into a single one.
 
-Reward : 0.5*(cos(theta1) + cos(theta2)) - 0.5*E_err - 0.1*(x/2.4)^2
-           where E_err = |E_pole - E_target| / (2 * E_target),
-                 E_pole = KE_rot + PE of the two-link pendulum,
-                 E_target = (m1+m2)*g*l1 + m2*g*l2  (energy at upright, at rest).
-           The energy term gives the value function a gradient *in the
-           angular velocities* even when both poles are hanging at rest —
-           without it, V is flat at the bottom and DP cannot propagate
-           information from the upright basin downward.
+Reward : 0.5*(cos th1 + cos th2)
+         - 0.5 * E_err
+         - 0.1 * (x/2.4)^2
+         - 0.001 * gate * (w1^2 + w2^2)
+
+           E_err  = |E_pole - E_target| / (2 * E_target)
+           E_pole = KE_rot + PE of the two-link pendulum
+           E_target = (m1+m2)*g*l1 + m2*g*l2
+           gate   = max(0, 0.5*(cos th1 + cos th2))   (0 hanging, 1 upright)
+
+           The energy term breaks the flatness of cos-only reward at
+           the hanging position, giving DP a gradient in (w1, w2) for
+           swing-up. The upright-gated velocity penalty kills the
+           false attractor where the first link stays upright while
+           the second link free-spins at E ≈ E_target — without it
+           the policy is happy to leave the second pole rotating
+           because cos(theta2) averages to ~0 there but E_err ≈ 0.
 
 Memory (BINS_PER_DIM bins per dimension):
   BINS_PER_DIM=15 → 15^6 = 11.4M states  → ~420 MB VRAM
@@ -185,8 +194,19 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
                         / (2.0f * DCP_E_TARGET);
             E_err = fminf(E_err, 1.0f);
 
+            // Upright-gated velocity penalty:
+            //   gate = 0 when both poles hanging  → no penalty during swing-up
+            //   gate = 1 when both poles upright  → penalize spinning rotors
+            // This kills the "first upright + second free-spinning at E=E_target"
+            // attractor without affecting the energy-pumping phase below.
+            float upright_gate = fmaxf(0.0f, 0.5f * (c1n + c2n));
+            float vel_pen = 0.001f * upright_gate * (w1 * w1 + w2 * w2);
+
             float xn = *nx / DCP_XMAX;
-            *reward = 0.5f * (c1n + c2n) - 0.5f * E_err - 0.1f * xn * xn;
+            *reward = 0.5f * (c1n + c2n)
+                    - 0.5f * E_err
+                    - 0.1f * xn * xn
+                    - vel_pen;
 
             // Only terminate on cart bounds — angles are free to spin
             *terminated = (*nx < -DCP_XMAX) || (*nx > DCP_XMAX);
@@ -242,7 +262,7 @@ def _step_python(state, force):
 
     next_state = np.array([nx, nxd, nth1, nth1d, nth2, nth2d], dtype=np.float32)
 
-    # Energy shaping — must match CUDA exactly.
+    # Reward shaping — must match CUDA exactly.
     c1n, c2n = np.cos(nth1), np.cos(nth2)
     c12n     = np.cos(nth1 - nth2)
     KE = 0.5 * m12 * l1**2 * nth1d**2 \
@@ -252,10 +272,29 @@ def _step_python(state, force):
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
     E_err    = min(abs((KE + PE) - E_target) / (2.0 * E_target), 1.0)
 
-    xn         = nx / 2.4
-    reward     = 0.5 * (c1n + c2n) - 0.5 * E_err - 0.1 * xn**2
+    upright_gate = max(0.0, 0.5 * (c1n + c2n))
+    vel_pen      = 0.001 * upright_gate * (nth1d**2 + nth2d**2)
+
+    xn = nx / 2.4
+    reward     = 0.5 * (c1n + c2n) - 0.5 * E_err - 0.1 * xn**2 - vel_pen
     terminated = abs(nx) > 2.4
     return next_state, reward, terminated
+
+
+# ── Energy helpers (for diagnostics, must match CUDA reward) ──────────────────
+
+_M1, _M2, _L1, _L2, _G = 0.1, 0.1, 0.5, 0.5, 9.8
+_E_TARGET = (_M1 + _M2) * _G * _L1 + _M2 * _G * _L2   # ≈ 1.47 J
+
+
+def _pole_energy(state: np.ndarray) -> float:
+    """KE_rot + PE of the two-link pendulum (cart-frame, mass at tips)."""
+    _, _, th1, w1, th2, w2 = state
+    KE = 0.5 * (_M1 + _M2) * _L1**2 * w1**2 \
+       + 0.5 * _M2         * _L2**2 * w2**2 \
+       +        _M2 * _L1 * _L2 * w1 * w2 * np.cos(th1 - th2)
+    PE = (_M1 + _M2) * _G * _L1 * np.cos(th1) + _M2 * _G * _L2 * np.cos(th2)
+    return KE + PE
 
 
 # ── Training ──────────────────────────────────────────────────────────────────
@@ -402,6 +441,8 @@ def evaluate(
         pygame.display.set_caption("Double CartPole Swing-Up — CUDA Policy Iteration")
         clock = pygame.time.Clock()
 
+    STATS_WINDOW = 100   # last-N steps used for steady-state diagnostics
+
     for ep in range(n_episodes):
         # Start with both poles hanging down (theta = pi) + small perturbation
         state = np.array([
@@ -412,12 +453,13 @@ def evaluate(
             np.pi + rng.uniform(-0.05, 0.05),  # th2 ≈ pi (hanging down)
             0.0,                         # th2_dot
         ], dtype=np.float32)
-        # Wrap to (-pi, pi]
         state[2] = ((state[2] + np.pi) % (2 * np.pi)) - np.pi
         state[4] = ((state[4] + np.pi) % (2 * np.pi)) - np.pi
 
         total_reward = 0.0
         terminated   = False
+        traj         = [state.copy()]
+        forces       = []
 
         for step in range(max_steps):
             if do_render:
@@ -434,6 +476,8 @@ def evaluate(
             ))
             state, reward, terminated = _step_python(state, force)
             total_reward += reward
+            traj.append(state.copy())
+            forces.append(force)
             if terminated:
                 break
 
@@ -443,8 +487,36 @@ def evaluate(
             f"reward = {total_reward:.1f} | {outcome}"
         )
         print(
-            f"  final: x={state[0]:+.3f}  th1={np.degrees(state[2]):+.1f}°"
-            f"  th2={np.degrees(state[4]):+.1f}°"
+            f"  final state:"
+            f"  x={state[0]:+.3f}  xd={state[1]:+.2f}"
+            f"  th1={np.degrees(state[2]):+6.1f}°  w1={state[3]:+.2f}"
+            f"  th2={np.degrees(state[4]):+6.1f}°  w2={state[5]:+.2f}"
+        )
+
+        # Steady-state diagnostics over the last STATS_WINDOW steps.
+        traj_arr = np.asarray(traj[-STATS_WINDOW:])
+        cos1   = np.cos(traj_arr[:, 2])
+        cos2   = np.cos(traj_arr[:, 4])
+        w1_abs = np.abs(traj_arr[:, 3])
+        w2_abs = np.abs(traj_arr[:, 5])
+        E      = np.array([_pole_energy(s) for s in traj_arr])
+        E_err  = np.minimum(np.abs(E - _E_TARGET) / (2.0 * _E_TARGET), 1.0)
+
+        # Reward decomposition (matches the CUDA shape exactly).
+        cos_part = 0.5 * (cos1 + cos2).mean()
+        e_part   = -0.5 * E_err.mean()
+        x_part   = -0.1 * (traj_arr[:, 0] / 2.4) ** 2
+        x_part   = x_part.mean()
+
+        print(
+            f"  last {len(traj_arr)} steps:"
+            f"  <cos th1>={cos1.mean():+.3f}  <cos th2>={cos2.mean():+.3f}"
+            f"  <|w1|>={w1_abs.mean():.2f}  <|w2|>={w2_abs.mean():.2f}"
+        )
+        print(
+            f"             "
+            f"  <E/E_tgt>={E.mean()/_E_TARGET:+.3f}  <E_err>={E_err.mean():.3f}"
+            f"  reward parts: cos={cos_part:+.3f}  E={e_part:+.3f}  x={x_part:+.3f}"
         )
 
     if do_render:
@@ -564,8 +636,12 @@ def plot_trajectory(
     max_steps: int = 1000,
 ) -> None:
     """
-    Plot a single trajectory: theta1(t), theta2(t), x(t), reward(t).
-    Starts from hanging-down position.
+    Trajectory rollout from hanging-down. Five panels:
+      1. theta1, theta2  vs t          (angles in deg)
+      2. w1, w2          vs t          (angular velocities, rad/s)
+      3. x, x_dot        vs t          (cart kinematics)
+      4. E_pole / E_target vs t        (energy ratio — should reach 1 and stay)
+      5. reward          vs t          (total + decomposition)
     """
     from utils.barycentric import get_optimal_action
 
@@ -575,7 +651,8 @@ def plot_trajectory(
     state[2] = ((state[2] + np.pi) % (2 * np.pi)) - np.pi
     state[4] = ((state[4] + np.pi) % (2 * np.pi)) - np.pi
 
-    xs, th1s, th2s, rs = [], [], [], []
+    states  = [state.copy()]
+    rewards = []
 
     for _ in range(max_steps):
         force = float(get_optimal_action(
@@ -584,35 +661,61 @@ def plot_trajectory(
             pi.grid_shape, pi.strides, pi.corner_bits,
         ))
         state, reward, terminated = _step_python(state, force)
-        xs.append(state[0])
-        th1s.append(np.degrees(state[2]))
-        th2s.append(np.degrees(state[4]))
-        rs.append(reward)
+        states.append(state.copy())
+        rewards.append(reward)
         if terminated:
             break
 
-    t = np.arange(len(xs)) * 0.02
+    S = np.asarray(states[1:])           # (T, 6)
+    t = np.arange(len(S)) * 0.02
 
-    fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
-    axes[0].plot(t, th1s, label="theta1", color="steelblue")
-    axes[0].plot(t, th2s, label="theta2", color="darkorange")
+    xs, xds  = S[:, 0], S[:, 1]
+    th1, w1  = np.degrees(S[:, 2]), S[:, 3]
+    th2, w2  = np.degrees(S[:, 4]), S[:, 5]
+    E        = np.array([_pole_energy(s) for s in S]) / _E_TARGET
+    rs       = np.asarray(rewards)
+    cos_part = 0.5 * (np.cos(S[:, 2]) + np.cos(S[:, 4]))
+    x_part   = -0.1 * (xs / 2.4) ** 2
+
+    fig, axes = plt.subplots(5, 1, figsize=(11, 12), sharex=True)
+
+    axes[0].plot(t, th1, label="theta1", color="steelblue")
+    axes[0].plot(t, th2, label="theta2", color="darkorange")
     axes[0].axhline(0,   color="green", ls="--", lw=1, label="upright")
     axes[0].axhline(180, color="red",   ls=":",  lw=1, label="hanging down")
     axes[0].axhline(-180,color="red",   ls=":",  lw=1)
     axes[0].set_ylabel("Angle (deg)")
-    axes[0].legend(loc="upper right")
+    axes[0].legend(loc="upper right", fontsize=9)
     axes[0].set_title("Double CartPole Swing-Up — trajectory from hanging-down")
 
-    axes[1].plot(t, xs, color="black")
-    axes[1].axhline(0,    color="green", ls="--", lw=1)
-    axes[1].axhline( 2.4, color="red",   ls=":",  lw=1)
-    axes[1].axhline(-2.4, color="red",   ls=":",  lw=1)
-    axes[1].set_ylabel("Cart position (m)")
+    axes[1].plot(t, w1, label="w1", color="steelblue")
+    axes[1].plot(t, w2, label="w2", color="darkorange")
+    axes[1].axhline(0, color="gray", ls="--", lw=1)
+    axes[1].set_ylabel("Angular vel (rad/s)")
+    axes[1].legend(loc="upper right", fontsize=9)
 
-    axes[2].plot(t, rs, color="purple")
-    axes[2].axhline(0, color="gray", ls="--", lw=1)
-    axes[2].set_ylabel("Reward")
-    axes[2].set_xlabel("Time (s)")
+    axes[2].plot(t, xs,  label="x",     color="black")
+    axes[2].plot(t, xds, label="x_dot", color="gray")
+    axes[2].axhline( 2.4, color="red",   ls=":",  lw=1)
+    axes[2].axhline(-2.4, color="red",   ls=":",  lw=1)
+    axes[2].axhline(0,    color="green", ls="--", lw=1)
+    axes[2].set_ylabel("Cart x (m), x_dot (m/s)")
+    axes[2].legend(loc="upper right", fontsize=9)
+
+    axes[3].plot(t, E, color="purple")
+    axes[3].axhline( 1.0, color="green", ls="--", lw=1, label="E_target")
+    axes[3].axhline(-1.0, color="red",   ls=":",  lw=1, label="hanging rest")
+    axes[3].set_ylabel("E_pole / E_target")
+    axes[3].legend(loc="lower right", fontsize=9)
+
+    axes[4].plot(t, rs,        color="purple", label="total")
+    axes[4].plot(t, cos_part,  color="steelblue", lw=0.8, label="cos part")
+    axes[4].plot(t, x_part,    color="black",     lw=0.8, label="x penalty")
+    axes[4].axhline(0,   color="gray",  ls="--", lw=1)
+    axes[4].axhline(1.0, color="green", ls="--", lw=1, label="max reward")
+    axes[4].set_ylabel("Reward")
+    axes[4].set_xlabel("Time (s)")
+    axes[4].legend(loc="lower right", fontsize=9)
 
     plt.tight_layout()
     save_path.parent.mkdir(parents=True, exist_ok=True)
