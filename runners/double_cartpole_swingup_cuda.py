@@ -6,20 +6,27 @@ BOTH poles up from the hanging-down position (theta = pi) and balance them at th
 upright equilibrium (theta = 0).
 
 State  : [x        ∈ [-2.5,  2.5]   cart position (terminates at |x| > 2.4)
-           x_dot   ∈ [-5.0,  5.0]   cart velocity
+           x_dot   ∈ [-6.0,  6.0]   cart velocity
            theta1  ∈ [-pi,   pi]    first pole angle from vertical (full range)
-           th1_dot ∈ [-10,   10]    first pole angular velocity
+           th1_dot ∈ [-15,   15]    first pole angular velocity
            theta2  ∈ [-pi,   pi]    second pole angle from vertical (full range)
-           th2_dot ∈ [-10,   10]    second pole angular velocity]
+           th2_dot ∈ [-15,   15]    second pole angular velocity]
 
 Termination: |x| > 2.4 only — angles are free to spin through full [-pi, pi]
              and are wrapped back after each Euler step.
 
-Actions: 3 force values {-10.0, 0.0, +10.0} applied to the cart
-Reward : (cos(theta1) + cos(theta2)) / 2  -  0.1 * (x / 2.4)^2
-           ~ +0.9  when both poles upright and cart centred
-           ~ -1.0  when both poles hanging straight down
-           Smooth everywhere — natural gradient toward upright, no local minima.
+Actions: 5 force values {-30, -15, 0, +15, +30} applied to the cart.
+           More authority is needed to pump enough energy into a double
+           pendulum than into a single one.
+
+Reward : 0.5*(cos(theta1) + cos(theta2)) - 0.5*E_err - 0.1*(x/2.4)^2
+           where E_err = |E_pole - E_target| / (2 * E_target),
+                 E_pole = KE_rot + PE of the two-link pendulum,
+                 E_target = (m1+m2)*g*l1 + m2*g*l2  (energy at upright, at rest).
+           The energy term gives the value function a gradient *in the
+           angular velocities* even when both poles are hanging at rest —
+           without it, V is flat at the bottom and DP cannot propagate
+           information from the upright basin downward.
 
 Memory (BINS_PER_DIM bins per dimension):
   BINS_PER_DIM=15 → 15^6 = 11.4M states  → ~420 MB VRAM
@@ -41,18 +48,21 @@ from src.cuda_policy_iteration import CudaPolicyIteration6D, CudaPIConfig
 
 # ── Grid & action space ────────────────────────────────────────────────────────
 
-BINS_PER_DIM = 20   # 20^6 ~ 64M states ~ 2.1 GB VRAM
+BINS_PER_DIM = 20   # 20^6 ~ 64M states ~ 2.4 GB VRAM
 
 BINS_SPACE = {
     "x":       np.linspace(-2.5,       2.5,       BINS_PER_DIM, dtype=np.float32),
-    "x_dot":   np.linspace(-5.0,       5.0,       BINS_PER_DIM, dtype=np.float32),
+    "x_dot":   np.linspace(-6.0,       6.0,       BINS_PER_DIM, dtype=np.float32),
     "theta1":  np.linspace(-np.pi,     np.pi,     BINS_PER_DIM, dtype=np.float32),
-    "th1_dot": np.linspace(-10.0,      10.0,      BINS_PER_DIM, dtype=np.float32),
+    "th1_dot": np.linspace(-15.0,      15.0,      BINS_PER_DIM, dtype=np.float32),
     "theta2":  np.linspace(-np.pi,     np.pi,     BINS_PER_DIM, dtype=np.float32),
-    "th2_dot": np.linspace(-10.0,      10.0,      BINS_PER_DIM, dtype=np.float32),
+    "th2_dot": np.linspace(-15.0,      15.0,      BINS_PER_DIM, dtype=np.float32),
 }
 
-ACTION_SPACE = np.array([-10.0, 0.0, 10.0], dtype=np.float32)
+# Five actions give the policy the option to do nothing during the swing
+# phase (mirrors the single-pole swing-up). Wider authority is needed
+# for the heavier two-link pendulum.
+ACTION_SPACE = np.array([-30.0, -15.0, 0.0, 15.0, 30.0], dtype=np.float32)
 
 
 # ── CUDA subclass ──────────────────────────────────────────────────────────────
@@ -74,11 +84,17 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
         #define DCP_M     1.0f    // cart mass
         #define DCP_M1    0.1f    // first pole mass (at tip)
         #define DCP_M2    0.1f    // second pole mass (at tip)
-        #define DCP_L1    0.5f    // first pole half-length
-        #define DCP_L2    0.5f    // second pole half-length
+        #define DCP_L1    0.5f    // first pole length (mass at the tip)
+        #define DCP_L2    0.5f    // second pole length (mass at the tip)
         #define DCP_TAU   0.02f
         #define DCP_XMAX  2.4f
         #define DCP_PI    3.14159265358979323846f
+        // Total mechanical energy of the two-link pendulum at upright rest:
+        //   PE = (m1+m2)*g*l1 + m2*g*l2,  KE = 0
+        // Used to build a reward gradient in the angular velocities at
+        // the hanging-down rest position (where cos-only reward is flat).
+        #define DCP_E_TARGET ((DCP_M1 + DCP_M2) * DCP_G * DCP_L1 \
+                            + DCP_M2 * DCP_G * DCP_L2)
 
         __device__ float dcp_wrap(float x) {
             float r = fmodf(x + DCP_PI, 2.0f * DCP_PI);
@@ -142,11 +158,35 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             *nth2  = dcp_wrap(th2  + DCP_TAU * th2d);
             *nth2d = th2d + DCP_TAU * th2acc;
 
-            // --- Cosine reward: +1 upright, -1 hanging down ---------------
-            float c1  = cosf(*nth1);
-            float c2  = cosf(*nth2);
-            float xn  = *nx / DCP_XMAX;
-            *reward = 0.5f * (c1 + c2) - 0.1f * xn * xn;
+            // --- Reward = cosine + energy shaping -------------------------
+            // KE of the two-link pendulum (rotational, in the cart frame):
+            //   KE = 0.5*(m1+m2)*l1^2*w1^2 + 0.5*m2*l2^2*w2^2
+            //      + m2*l1*l2*w1*w2*cos(th1 - th2)
+            // PE (with reference at the cart axle, +y = up):
+            //   PE = (m1+m2)*g*l1*cos(th1) + m2*g*l2*cos(th2)
+            // E_err is small only near the upright energy level.
+            // At hanging rest E = -E_target → E_err = 1 (saturated).
+            // At hanging with the right pump-up speed E ≈ +E_target → E_err = 0.
+            // This gives a gradient in (w1, w2) at the bottom that drives
+            // the swing-up phase, which a cos-only reward does not.
+            float c1n  = cosf(*nth1);
+            float c2n  = cosf(*nth2);
+            float c12n = cosf(*nth1 - *nth2);
+            float w1   = *nth1d;
+            float w2   = *nth2d;
+
+            float KE = 0.5f * m12    * DCP_L1 * DCP_L1 * w1 * w1
+                     + 0.5f * DCP_M2 * DCP_L2 * DCP_L2 * w2 * w2
+                     +        DCP_M2 * DCP_L1 * DCP_L2 * w1 * w2 * c12n;
+            float PE = m12    * DCP_G * DCP_L1 * c1n
+                     + DCP_M2 * DCP_G * DCP_L2 * c2n;
+
+            float E_err = fabsf((KE + PE) - DCP_E_TARGET)
+                        / (2.0f * DCP_E_TARGET);
+            E_err = fminf(E_err, 1.0f);
+
+            float xn = *nx / DCP_XMAX;
+            *reward = 0.5f * (c1n + c2n) - 0.5f * E_err - 0.1f * xn * xn;
 
             // Only terminate on cart bounds — angles are free to spin
             *terminated = (*nx < -DCP_XMAX) || (*nx > DCP_XMAX);
@@ -201,8 +241,19 @@ def _step_python(state, force):
     nth2d = th2d + tau * th2acc
 
     next_state = np.array([nx, nxd, nth1, nth1d, nth2, nth2d], dtype=np.float32)
+
+    # Energy shaping — must match CUDA exactly.
+    c1n, c2n = np.cos(nth1), np.cos(nth2)
+    c12n     = np.cos(nth1 - nth2)
+    KE = 0.5 * m12 * l1**2 * nth1d**2 \
+       + 0.5 * m2  * l2**2 * nth2d**2 \
+       +        m2 * l1 * l2 * nth1d * nth2d * c12n
+    PE = m12 * 9.8 * l1 * c1n + m2 * 9.8 * l2 * c2n
+    E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
+    E_err    = min(abs((KE + PE) - E_target) / (2.0 * E_target), 1.0)
+
     xn         = nx / 2.4
-    reward     = 0.5 * (np.cos(nth1) + np.cos(nth2)) - 0.1 * xn**2
+    reward     = 0.5 * (c1n + c2n) - 0.5 * E_err - 0.1 * xn**2
     terminated = abs(nx) > 2.4
     return next_state, reward, terminated
 
@@ -270,13 +321,15 @@ def _render_frame_pygame(screen, clock, state):
     axle_x = int(cart_x)
     axle_y = int(cart_y + axle_offset)
 
-    # --- Pole 1 (blue) — NOTE: no vertical flip, so upright = up on screen ---
+    # --- Pole 1 (blue) — drawn with rotate_rad(-th1) so that after the
+    # vertical flip below, theta=0 displays the pole pointing UP. Same
+    # convention used by the single-pole swing-up renderer.
     p1_coords = []
     for coord in [(-pole_w/2, -pole_w/2),
                   (-pole_w/2,  pole_l - pole_w/2),
                   ( pole_w/2,  pole_l - pole_w/2),
                   ( pole_w/2, -pole_w/2)]:
-        v = pygame.math.Vector2(coord).rotate_rad(th1)   # no negation: th=0 → up
+        v = pygame.math.Vector2(coord).rotate_rad(-th1)
         p1_coords.append((v.x + cart_x, v.y + cart_y + axle_offset))
     gfxdraw.aapolygon(surf, p1_coords, (70, 130, 180))
     gfxdraw.filled_polygon(surf, p1_coords, (70, 130, 180))
@@ -284,8 +337,8 @@ def _render_frame_pygame(screen, clock, state):
     gfxdraw.aacircle(surf, axle_x, axle_y, int(pole_w / 2), (129, 132, 203))
     gfxdraw.filled_circle(surf, axle_x, axle_y, int(pole_w / 2), (129, 132, 203))
 
-    # --- Joint (tip of pole 1) ---
-    tip1   = pygame.math.Vector2(0, pole_l).rotate_rad(th1)
+    # --- Joint (tip of pole 1) — same sign convention as pole 1 ---
+    tip1   = pygame.math.Vector2(0, pole_l).rotate_rad(-th1)
     joint_x = int(cart_x + tip1.x)
     joint_y = int(cart_y + axle_offset + tip1.y)
 
@@ -295,7 +348,7 @@ def _render_frame_pygame(screen, clock, state):
                   (-pole2_w/2,  pole_l - pole2_w/2),
                   ( pole2_w/2,  pole_l - pole2_w/2),
                   ( pole2_w/2, -pole2_w/2)]:
-        v = pygame.math.Vector2(coord).rotate_rad(th2)
+        v = pygame.math.Vector2(coord).rotate_rad(-th2)
         p2_coords.append((v.x + joint_x, v.y + joint_y))
     gfxdraw.aapolygon(surf, p2_coords, (210, 105, 30))
     gfxdraw.filled_polygon(surf, p2_coords, (210, 105, 30))
@@ -303,7 +356,12 @@ def _render_frame_pygame(screen, clock, state):
     gfxdraw.aacircle(surf, joint_x, joint_y, int(pole2_w / 2), (129, 132, 203))
     gfxdraw.filled_circle(surf, joint_x, joint_y, int(pole2_w / 2), (129, 132, 203))
 
-    # --- Info overlay ---
+    # Flip vertically: pygame y-down → visual y-up (theta=0 now points UP)
+    surf = pygame.transform.flip(surf, False, True)
+    screen.blit(surf, (0, 0))
+
+    # Info overlay drawn directly on the screen (after flip) so the text
+    # stays upright at the top.
     font = pygame.font.SysFont("monospace", 14)
     lines = [
         f"x    : {state[0]:+.3f} m",
@@ -311,9 +369,8 @@ def _render_frame_pygame(screen, clock, state):
         f"th2  : {np.degrees(state[4]):+.1f} deg",
     ]
     for i, txt in enumerate(lines):
-        surf.blit(font.render(txt, True, (60, 60, 60)), (8, 8 + i * 18))
+        screen.blit(font.render(txt, True, (60, 60, 60)), (8, 8 + i * 18))
 
-    screen.blit(surf, (0, 0))
     pygame.event.pump()
     clock.tick(_RENDER_FPS)
     pygame.display.flip()
@@ -404,19 +461,58 @@ def evaluate(
         print(f"Video saved to {record_path.resolve()}")
 
 
-def evaluate_random(n_episodes: int = 3, seed: int = 42, max_steps: int = 500) -> None:
+def evaluate_random(
+    n_episodes: int = 3,
+    seed: int = 42,
+    max_steps: int = 500,
+    render: bool = False,
+    record_path: Path = None,
+) -> None:
     """Random policy rollout — physics sanity check, no training needed."""
     rng = np.random.default_rng(seed=seed)
+
+    recording  = record_path is not None
+    do_render  = render or recording
+    all_frames = []
+
+    if do_render:
+        import pygame
+        pygame.init()
+        pygame.display.init()
+        flags = 0 if render else pygame.NOFRAME
+        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H), flags)
+        pygame.display.set_caption("Double CartPole Swing-Up — Random (physics check)")
+        clock = pygame.time.Clock()
+
     for ep in range(n_episodes):
         state = np.array([0.0, 0.0, np.pi, 0.0, np.pi, 0.0], dtype=np.float32)
         total_reward = 0.0
         for step in range(max_steps):
+            if do_render:
+                _render_frame_pygame(screen, clock, state)
+                if recording:
+                    frame = pygame.surfarray.array3d(screen)
+                    all_frames.append(frame.transpose(1, 0, 2))
+
             force = float(rng.choice(ACTION_SPACE))
             state, reward, terminated = _step_python(state, force)
             total_reward += reward
             if terminated:
                 break
         print(f"[random] Episode {ep + 1}: {step + 1} steps | reward = {total_reward:.1f}")
+
+    if do_render:
+        pygame.quit()
+
+    if recording and all_frames:
+        import imageio
+        record_path = Path(record_path)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        if record_path.suffix.lower() == ".gif":
+            imageio.mimsave(str(record_path), all_frames, fps=50, loop=0)
+        else:
+            imageio.mimsave(str(record_path), all_frames, fps=50, macro_block_size=1)
+        print(f"Video saved to {record_path.resolve()}")
 
 
 # ── Visualization ─────────────────────────────────────────────────────────────
@@ -557,7 +653,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.random is not None:
-        evaluate_random(n_episodes=args.random, seed=args.seed)
+        evaluate_random(
+            n_episodes=args.random,
+            seed=args.seed,
+            max_steps=args.steps,
+            render=args.render,
+            record_path=args.record,
+        )
     else:
         if args.bins != BINS_PER_DIM:
             for key in BINS_SPACE:
