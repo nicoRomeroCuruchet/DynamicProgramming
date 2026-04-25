@@ -46,11 +46,11 @@ BINS_SPACE = {
     "x":      np.linspace(-2.5,    2.5,    BINS_PER_DIM, dtype=np.float32),
     "x_dot":  np.linspace(-5.0,    5.0,    BINS_PER_DIM, dtype=np.float32),
     "theta":  np.linspace(-np.pi,  np.pi,  BINS_PER_DIM, dtype=np.float32),
-    "th_dot": np.linspace(-8.0,    8.0,    BINS_PER_DIM, dtype=np.float32),
+    "th_dot": np.linspace(-10.0,   10.0,   BINS_PER_DIM, dtype=np.float32),
 }
 
-# Three actions: push left / do nothing / push right
-ACTION_SPACE = np.array([-10.0, 0.0, 10.0], dtype=np.float32)
+# Five actions: more control authority helps the energy-pumping phase
+ACTION_SPACE = np.array([-20.0, -10.0, 0.0, 10.0, 20.0], dtype=np.float32)
 
 
 # ── CUDA subclass ──────────────────────────────────────────────────────────────
@@ -76,6 +76,8 @@ class CartPoleSwingUpCuda(CudaPolicyIteration4D):
         #define CP_TAU        0.02f
         #define CP_XMAX       2.4f
         #define CP_PI         3.14159265358979323846f
+        // E_target = m*g*l = 0.1*9.8*0.5 = 0.49 J  (energy to just reach upright)
+        #define CP_E_TARGET   (CP_MASSPOLE * CP_G * CP_LENGTH)
 
         __device__ float cp_wrap(float x) {
             float r = fmodf(x + CP_PI, 2.0f * CP_PI);
@@ -103,9 +105,21 @@ class CartPoleSwingUpCuda(CudaPolicyIteration4D):
             *ntheta = cp_wrap(theta + CP_TAU * thd);
             *nthd   = thd   + CP_TAU * thacc;
 
-            // cos(theta) reward: +1 upright, -1 hanging down
+            // Energy-based reward shaping.
+            // E_pole = KE + PE = 0.5*m*(l*w)^2 + m*g*l*cos(theta)
+            //   At upright (theta=0, w=0): E = +mgl = E_target  -> E_err = 0
+            //   At hanging (theta=pi, w=0): E = -mgl             -> E_err = 1
+            //   At hanging with w=w_swing:  E = +mgl = E_target  -> E_err = 0
+            // This gives gradient in w even at theta=pi, which propagates
+            // the value function from the upright region into the bottom region.
+            float lw     = CP_LENGTH * (*nthd);
+            float E_pole = 0.5f * CP_MASSPOLE * lw * lw
+                         + CP_MASSPOLE * CP_G * CP_LENGTH * cosf(*ntheta);
+            float E_err  = fabsf(E_pole - CP_E_TARGET) / (2.0f * CP_E_TARGET);
+            E_err = fminf(E_err, 1.0f);
+
             float xn   = *nx / CP_XMAX;
-            *reward    = cosf(*ntheta) - 0.1f * xn * xn;
+            *reward    = cosf(*ntheta) - 0.5f * E_err - 0.1f * xn * xn;
 
             // Only terminate on cart bounds
             *terminated = (*nx < -CP_XMAX) || (*nx > CP_XMAX);
@@ -141,8 +155,15 @@ def _step_python(state, force):
     ntheta = ((theta + tau * thd + np.pi) % (2 * np.pi)) - np.pi
     nthd   = thd   + tau * thacc
 
+    # Energy shaping — must match CUDA exactly
+    g, m, l = 9.8, 0.1, 0.5
+    lw      = l * nthd
+    E_pole  = 0.5 * m * lw**2 + m * g * l * np.cos(ntheta)
+    E_target = m * g * l
+    E_err   = min(abs(E_pole - E_target) / (2.0 * E_target), 1.0)
+
     xn         = nx / 2.4
-    reward     = np.cos(ntheta) - 0.1 * xn**2
+    reward     = np.cos(ntheta) - 0.5 * E_err - 0.1 * xn**2
     terminated = abs(nx) > 2.4
     next_state = np.array([nx, nxd, ntheta, nthd], dtype=np.float32)
     return next_state, reward, terminated
@@ -156,8 +177,8 @@ def train(
     config = CudaPIConfig(
         gamma         = 0.999,
         theta         = 1e-4,
-        max_eval_iter = 10_000,
-        max_pi_iter   = 200,
+        max_eval_iter = 15_000,
+        max_pi_iter   = 500,
         log_interval  = 500,
     )
 
