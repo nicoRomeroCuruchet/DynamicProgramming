@@ -174,8 +174,8 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             // PE (with reference at the cart axle, +y = up):
             //   PE = (m1+m2)*g*l1*cos(th1) + m2*g*l2*cos(th2)
             // E_err is small only near the upright energy level.
-            // At hanging rest E = -E_target → E_err = 1 (saturated).
-            // At hanging with the right pump-up speed E ≈ +E_target → E_err = 0.
+            // At hanging rest E = -E_target -> E_err = 1 (saturated).
+            // At hanging with the right pump-up speed E ~ +E_target -> E_err = 0.
             // This gives a gradient in (w1, w2) at the bottom that drives
             // the swing-up phase, which a cos-only reward does not.
             float c1n  = cosf(*nth1);
@@ -194,21 +194,28 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
                         / (2.0f * DCP_E_TARGET);
             E_err = fminf(E_err, 1.0f);
 
-            // Upright-gated velocity penalty:
-            //   gate = 0 when both poles hanging  → no penalty during swing-up
-            //   gate = 1 when both poles upright  → penalize spinning rotors
-            // This kills the "first upright + second free-spinning at E=E_target"
-            // attractor without affecting the energy-pumping phase below.
-            float upright_gate = fmaxf(0.0f, 0.5f * (c1n + c2n));
-            float vel_pen = 0.001f * upright_gate * (w1 * w1 + w2 * w2);
+            // Upright-gated velocity penalty (multiplicative gate):
+            //   gate = 0 unless BOTH poles are above horizontal
+            //   This kills the "link1 upright + link2 free-spinning at E=E_target"
+            //   attractor without affecting the energy-pumping phase below.
+            float g1 = fmaxf(0.0f, c1n);
+            float g2 = fmaxf(0.0f, c2n);
+            float upright_gate = g1 * g2;
+            float vel_pen = 0.01f * upright_gate * (w1 * w1 + w2 * w2);
+
+            // Cosine reward weighted toward link 2 (the harder one to stabilize)
+            // and a fully-upright bonus that only fires when both links are up.
+            float cos_reward = 0.3f * c1n + 0.7f * c2n;
+            float upright_bonus = 0.5f * upright_gate;
 
             float xn = *nx / DCP_XMAX;
-            *reward = 0.5f * (c1n + c2n)
+            *reward = cos_reward
+                    + upright_bonus
                     - 0.5f * E_err
                     - 0.1f * xn * xn
                     - vel_pen;
 
-            // Only terminate on cart bounds — angles are free to spin
+            // Only terminate on cart bounds -- angles are free to spin
             *terminated = (*nx < -DCP_XMAX) || (*nx > DCP_XMAX);
         }
         '''
@@ -272,11 +279,16 @@ def _step_python(state, force):
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
     E_err    = min(abs((KE + PE) - E_target) / (2.0 * E_target), 1.0)
 
-    upright_gate = max(0.0, 0.5 * (c1n + c2n))
-    vel_pen      = 0.001 * upright_gate * (nth1d**2 + nth2d**2)
+    g1 = max(0.0, c1n)
+    g2 = max(0.0, c2n)
+    upright_gate = g1 * g2
+    vel_pen      = 0.01 * upright_gate * (nth1d**2 + nth2d**2)
+
+    cos_reward    = 0.3 * c1n + 0.7 * c2n
+    upright_bonus = 0.5 * upright_gate
 
     xn = nx / 2.4
-    reward     = 0.5 * (c1n + c2n) - 0.5 * E_err - 0.1 * xn**2 - vel_pen
+    reward     = cos_reward + upright_bonus - 0.5 * E_err - 0.1 * xn**2 - vel_pen
     terminated = abs(nx) > 2.4
     return next_state, reward, terminated
 
@@ -503,10 +515,15 @@ def evaluate(
         E_err  = np.minimum(np.abs(E - _E_TARGET) / (2.0 * _E_TARGET), 1.0)
 
         # Reward decomposition (matches the CUDA shape exactly).
-        cos_part = 0.5 * (cos1 + cos2).mean()
-        e_part   = -0.5 * E_err.mean()
-        x_part   = -0.1 * (traj_arr[:, 0] / 2.4) ** 2
-        x_part   = x_part.mean()
+        g1_arr   = np.maximum(0.0, cos1)
+        g2_arr   = np.maximum(0.0, cos2)
+        gate_arr = g1_arr * g2_arr
+        cos_part   = (0.3 * cos1 + 0.7 * cos2).mean()
+        bonus_part = (0.5 * gate_arr).mean()
+        e_part     = -0.5 * E_err.mean()
+        x_part     = -0.1 * (traj_arr[:, 0] / 2.4) ** 2
+        x_part     = x_part.mean()
+        vel_part   = -0.01 * (gate_arr * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2)).mean()
 
         print(
             f"  last {len(traj_arr)} steps:"
@@ -516,7 +533,8 @@ def evaluate(
         print(
             f"             "
             f"  <E/E_tgt>={E.mean()/_E_TARGET:+.3f}  <E_err>={E_err.mean():.3f}"
-            f"  reward parts: cos={cos_part:+.3f}  E={e_part:+.3f}  x={x_part:+.3f}"
+            f"  reward parts: cos={cos_part:+.3f}  bonus={bonus_part:+.3f}"
+            f"  E={e_part:+.3f}  x={x_part:+.3f}  vel={vel_part:+.3f}"
         )
 
     if do_render:
