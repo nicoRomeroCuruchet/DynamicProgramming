@@ -190,28 +190,24 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             float PE = m12    * DCP_G * DCP_L1 * c1n
                      + DCP_M2 * DCP_G * DCP_L2 * c2n;
 
+            // UNCAPPED energy error -- saturating at 1.0 was masking energy
+            // overshoot, letting the policy spin freely with E >> E_target.
             float E_err = fabsf((KE + PE) - DCP_E_TARGET)
                         / (2.0f * DCP_E_TARGET);
-            E_err = fminf(E_err, 1.0f);
 
-            // Upright-gated velocity penalty (multiplicative gate):
-            //   gate = 0 unless BOTH poles are above horizontal
-            //   This kills the "link1 upright + link2 free-spinning at E=E_target"
-            //   attractor without affecting the energy-pumping phase below.
+            // Multiplicative upright gate (only fires when BOTH poles up).
             float g1 = fmaxf(0.0f, c1n);
             float g2 = fmaxf(0.0f, c2n);
             float upright_gate = g1 * g2;
-            float vel_pen = 0.01f * upright_gate * (w1 * w1 + w2 * w2);
 
-            // Cosine reward weighted toward link 2 (the harder one to stabilize)
-            // and a fully-upright bonus that only fires when both links are up.
-            float cos_reward = 0.3f * c1n + 0.7f * c2n;
-            float upright_bonus = 0.5f * upright_gate;
+            // Always-on light velocity damping -- bleeds runaway spin at
+            // any state, including the link2-spinning false attractor.
+            float vel_pen = 0.005f * (w1 * w1 + w2 * w2);
 
             float xn = *nx / DCP_XMAX;
-            *reward = cos_reward
-                    + upright_bonus
-                    - 0.5f * E_err
+            *reward = 0.5f * (c1n + c2n)        // base cosine, range [-1, +1]
+                    + 1.0f * upright_gate       // strong upright bonus, [0, +1]
+                    - 1.0f * E_err              // uncapped energy penalty
                     - 0.1f * xn * xn
                     - vel_pen;
 
@@ -277,18 +273,16 @@ def _step_python(state, force):
        +        m2 * l1 * l2 * nth1d * nth2d * c12n
     PE = m12 * 9.8 * l1 * c1n + m2 * 9.8 * l2 * c2n
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
-    E_err    = min(abs((KE + PE) - E_target) / (2.0 * E_target), 1.0)
+    E_err    = abs((KE + PE) - E_target) / (2.0 * E_target)  # uncapped
 
     g1 = max(0.0, c1n)
     g2 = max(0.0, c2n)
     upright_gate = g1 * g2
-    vel_pen      = 0.01 * upright_gate * (nth1d**2 + nth2d**2)
-
-    cos_reward    = 0.3 * c1n + 0.7 * c2n
-    upright_bonus = 0.5 * upright_gate
+    vel_pen      = 0.005 * (nth1d**2 + nth2d**2)
 
     xn = nx / 2.4
-    reward     = cos_reward + upright_bonus - 0.5 * E_err - 0.1 * xn**2 - vel_pen
+    reward     = 0.5 * (c1n + c2n) + 1.0 * upright_gate \
+               - 1.0 * E_err - 0.1 * xn**2 - vel_pen
     terminated = abs(nx) > 2.4
     return next_state, reward, terminated
 
@@ -512,18 +506,18 @@ def evaluate(
         w1_abs = np.abs(traj_arr[:, 3])
         w2_abs = np.abs(traj_arr[:, 5])
         E      = np.array([_pole_energy(s) for s in traj_arr])
-        E_err  = np.minimum(np.abs(E - _E_TARGET) / (2.0 * _E_TARGET), 1.0)
+        E_err  = np.abs(E - _E_TARGET) / (2.0 * _E_TARGET)  # uncapped
 
         # Reward decomposition (matches the CUDA shape exactly).
         g1_arr   = np.maximum(0.0, cos1)
         g2_arr   = np.maximum(0.0, cos2)
         gate_arr = g1_arr * g2_arr
-        cos_part   = (0.3 * cos1 + 0.7 * cos2).mean()
-        bonus_part = (0.5 * gate_arr).mean()
-        e_part     = -0.5 * E_err.mean()
+        cos_part   = (0.5 * (cos1 + cos2)).mean()
+        bonus_part = gate_arr.mean()
+        e_part     = -E_err.mean()
         x_part     = -0.1 * (traj_arr[:, 0] / 2.4) ** 2
         x_part     = x_part.mean()
-        vel_part   = -0.01 * (gate_arr * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2)).mean()
+        vel_part   = -0.005 * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2).mean()
 
         print(
             f"  last {len(traj_arr)} steps:"
