@@ -481,6 +481,9 @@ def evaluate(
 
     STATS_WINDOW = 100   # last-N steps used for steady-state diagnostics
 
+    # Aggregate steady-state windows across episodes for autoresearch scoring.
+    all_steady_windows = []
+
     for ep in range(n_episodes):
         # Start with both poles hanging down (theta = pi) + small perturbation
         state = np.array([
@@ -533,6 +536,7 @@ def evaluate(
 
         # Steady-state diagnostics over the last STATS_WINDOW steps.
         traj_arr = np.asarray(traj[-STATS_WINDOW:])
+        all_steady_windows.append(traj_arr)
         cos1   = np.cos(traj_arr[:, 2])
         cos2   = np.cos(traj_arr[:, 4])
         w1_abs = np.abs(traj_arr[:, 3])
@@ -568,6 +572,17 @@ def evaluate(
             f"  reward parts: base={base_part:+.2f}  cos={cos_part:+.3f}"
             f"  g1={g1_part:+.3f}  g2={g2_part:+.3f}  bonus={bonus_part:+.3f}"
             f"  E={e_part:+.3f}  x={x_part:+.3f}  xd={xd_part:+.3f}  vel={vel_part:+.3f}"
+        )
+
+    # Dump aggregate steady-state trajectories for autoresearch scoring.
+    if all_steady_windows:
+        traj_path = Path("results") / "last_trajectory.npz"
+        traj_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            traj_path,
+            traj=np.concatenate(all_steady_windows, axis=0),
+            n_episodes=n_episodes,
+            steps_per_episode=STATS_WINDOW,
         )
 
     if do_render:
