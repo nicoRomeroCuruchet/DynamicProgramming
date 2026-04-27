@@ -71,7 +71,7 @@ BINS_SPACE = {
 # Five actions give the policy the option to do nothing during the swing
 # phase (mirrors the single-pole swing-up). Wider authority is needed
 # for the heavier two-link pendulum.
-ACTION_SPACE = np.array([-60.0, -30.0, -10.0, 0.0, 10.0, 30.0, 60.0], dtype=np.float32)
+ACTION_SPACE = np.array([-60.0, -30.0, -10.0, -3.0, 0.0, 3.0, 10.0, 30.0, 60.0], dtype=np.float32)
 
 
 # ── CUDA subclass ──────────────────────────────────────────────────────────────
@@ -190,11 +190,15 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             float PE = m12    * DCP_G * DCP_L1 * c1n
                      + DCP_M2 * DCP_G * DCP_L2 * c2n;
 
-            // SYMMETRIC energy penalty -- with bins>=20 the policy can
-            // pump finely; the previous 2x under-bias caused overshoot
-            // (E/E_tgt up to 2-3) and "fly-through" of the upright zone.
-            float E_err = fabsf((KE + PE) - DCP_E_TARGET)
-                        / (2.0f * DCP_E_TARGET);
+            // ASYMMETRIC energy penalty (under 1.5x, over 1.0x) -- the
+            // 2x version overshot to E/E_tgt=2; symmetric regressed to
+            // plateau at E/E_tgt=0.5. 1.5x is the middle ground: still
+            // pushes the agent past the mid-energy plateau without
+            // making "any high E is OK" the dominant strategy.
+            float E_diff = (KE + PE) - DCP_E_TARGET;
+            float E_err  = (E_diff < 0.0f)
+                         ? 1.5f * (-E_diff) / (2.0f * DCP_E_TARGET)
+                         :         E_diff   / (2.0f * DCP_E_TARGET);
 
             // Per-link upright "softgates" -- partial credit per link.
             float g1 = fmaxf(0.0f, c1n);
@@ -287,7 +291,11 @@ def _step_python(state, force):
        +        m2 * l1 * l2 * nth1d * nth2d * c12n
     PE = m12 * 9.8 * l1 * c1n + m2 * 9.8 * l2 * c2n
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
-    E_err    = abs((KE + PE) - E_target) / (2.0 * E_target)  # symmetric
+    E_diff = (KE + PE) - E_target
+    if E_diff < 0.0:
+        E_err = 1.5 * (-E_diff) / (2.0 * E_target)   # under-energy: 1.5x
+    else:
+        E_err =        E_diff   / (2.0 * E_target)   # over-energy:  1x
 
     g1 = max(0.0, c1n)
     g2 = max(0.0, c2n)
@@ -530,7 +538,10 @@ def evaluate(
         w1_abs = np.abs(traj_arr[:, 3])
         w2_abs = np.abs(traj_arr[:, 5])
         E      = np.array([_pole_energy(s) for s in traj_arr])
-        E_err  = np.abs(E - _E_TARGET) / (2.0 * _E_TARGET)  # symmetric
+        E_diff = E - _E_TARGET
+        E_err  = np.where(E_diff < 0.0,
+                          1.5 * np.abs(E_diff) / (2.0 * _E_TARGET),
+                                    E_diff    / (2.0 * _E_TARGET))
 
         # Reward decomposition (matches the CUDA shape exactly).
         g1_arr   = np.maximum(0.0, cos1)
