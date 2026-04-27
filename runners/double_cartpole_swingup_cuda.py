@@ -190,13 +190,15 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             float PE = m12    * DCP_G * DCP_L1 * c1n
                      + DCP_M2 * DCP_G * DCP_L2 * c2n;
 
-            // UNCAPPED energy error -- saturating let mid-energy plateau
-            // be "good enough", trapping the agent at <E/E_tgt> ~ 0.4.
-            float E_err = fabsf((KE + PE) - DCP_E_TARGET)
-                        / (2.0f * DCP_E_TARGET);
+            // ASYMMETRIC energy penalty -- under-energy hurts 2x more than
+            // over-energy. This breaks the E~0.5*E_tgt plateau by making
+            // "still missing energy" much more painful than overshooting.
+            float E_diff = (KE + PE) - DCP_E_TARGET;
+            float E_err  = (E_diff < 0.0f)
+                         ? 2.0f * (-E_diff) / (2.0f * DCP_E_TARGET)
+                         :         E_diff   / (2.0f * DCP_E_TARGET);
 
-            // Per-link upright "softgates" -- give partial credit as each
-            // link approaches upright, breaking the symmetric plateau.
+            // Per-link upright "softgates" -- partial credit per link.
             float g1 = fmaxf(0.0f, c1n);
             float g2 = fmaxf(0.0f, c2n);
             float upright_gate = g1 * g2;
@@ -208,13 +210,14 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             float xdn = *nxd / 8.0f;
             float xn  = *nx  / DCP_XMAX;
 
-            // +1.0 baseline so surviving beats terminating early.
-            *reward = 1.0f
+            // Lower baseline (0.5) so the plateau is less comfortable;
+            // suicide is still worse thanks to the -100 terminal penalty.
+            *reward = 0.5f
                     + 0.5f * (c1n + c2n)        // base cosine,  [-1, +1]
                     + 0.5f * g1                 // per-link credit (link 1)
-                    + 1.0f * g2                 // per-link credit (link 2 - harder)
+                    + 1.0f * g2                 // per-link credit (link 2)
                     + 2.0f * upright_gate       // BIG bonus when both up
-                    - 1.0f * E_err              // uncapped energy penalty
+                    - 1.0f * E_err              // asymmetric energy penalty
                     - 0.5f * xn * xn
                     - 0.2f * xdn * xdn
                     - vel_pen;
@@ -285,7 +288,11 @@ def _step_python(state, force):
        +        m2 * l1 * l2 * nth1d * nth2d * c12n
     PE = m12 * 9.8 * l1 * c1n + m2 * 9.8 * l2 * c2n
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
-    E_err    = abs((KE + PE) - E_target) / (2.0 * E_target)  # uncapped
+    E_diff = (KE + PE) - E_target
+    if E_diff < 0.0:
+        E_err = 2.0 * (-E_diff) / (2.0 * E_target)   # under-energy: 2x penalty
+    else:
+        E_err =        E_diff   / (2.0 * E_target)   # over-energy:  1x penalty
 
     g1 = max(0.0, c1n)
     g2 = max(0.0, c2n)
@@ -294,7 +301,7 @@ def _step_python(state, force):
 
     xn  = nx  / 2.4
     xdn = nxd / 8.0
-    reward = 1.0 \
+    reward = 0.5 \
            + 0.5 * (c1n + c2n) \
            + 0.5 * g1 \
            + 1.0 * g2 \
@@ -528,13 +535,16 @@ def evaluate(
         w1_abs = np.abs(traj_arr[:, 3])
         w2_abs = np.abs(traj_arr[:, 5])
         E      = np.array([_pole_energy(s) for s in traj_arr])
-        E_err  = np.abs(E - _E_TARGET) / (2.0 * _E_TARGET)  # uncapped
+        E_diff = E - _E_TARGET
+        E_err  = np.where(E_diff < 0.0,
+                          2.0 * np.abs(E_diff) / (2.0 * _E_TARGET),
+                                    E_diff    / (2.0 * _E_TARGET))
 
         # Reward decomposition (matches the CUDA shape exactly).
         g1_arr   = np.maximum(0.0, cos1)
         g2_arr   = np.maximum(0.0, cos2)
         gate_arr = g1_arr * g2_arr
-        base_part  = 1.0
+        base_part  = 0.5
         cos_part   = (0.5 * (cos1 + cos2)).mean()
         g1_part    = 0.5 * g1_arr.mean()
         g2_part    = 1.0 * g2_arr.mean()
