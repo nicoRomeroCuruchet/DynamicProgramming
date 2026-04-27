@@ -61,7 +61,7 @@ BINS_PER_DIM = 20   # 20^6 ~ 64M states ~ 2.4 GB VRAM
 
 BINS_SPACE = {
     "x":       np.linspace(-2.5,       2.5,       BINS_PER_DIM, dtype=np.float32),
-    "x_dot":   np.linspace(-6.0,       6.0,       BINS_PER_DIM, dtype=np.float32),
+    "x_dot":   np.linspace(-8.0,       8.0,       BINS_PER_DIM, dtype=np.float32),
     "theta1":  np.linspace(-np.pi,     np.pi,     BINS_PER_DIM, dtype=np.float32),
     "th1_dot": np.linspace(-15.0,      15.0,      BINS_PER_DIM, dtype=np.float32),
     "theta2":  np.linspace(-np.pi,     np.pi,     BINS_PER_DIM, dtype=np.float32),
@@ -71,7 +71,7 @@ BINS_SPACE = {
 # Five actions give the policy the option to do nothing during the swing
 # phase (mirrors the single-pole swing-up). Wider authority is needed
 # for the heavier two-link pendulum.
-ACTION_SPACE = np.array([-30.0, -15.0, 0.0, 15.0, 30.0], dtype=np.float32)
+ACTION_SPACE = np.array([-60.0, -30.0, -10.0, 0.0, 10.0, 30.0, 60.0], dtype=np.float32)
 
 
 # ── CUDA subclass ──────────────────────────────────────────────────────────────
@@ -190,26 +190,38 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             float PE = m12    * DCP_G * DCP_L1 * c1n
                      + DCP_M2 * DCP_G * DCP_L2 * c2n;
 
-            // UNCAPPED energy error -- saturating at 1.0 was masking energy
-            // overshoot, letting the policy spin freely with E >> E_target.
+            // UNCAPPED energy error -- saturating let mid-energy plateau
+            // be "good enough", trapping the agent at <E/E_tgt> ~ 0.4.
             float E_err = fabsf((KE + PE) - DCP_E_TARGET)
                         / (2.0f * DCP_E_TARGET);
 
-            // Multiplicative upright gate (only fires when BOTH poles up).
+            // Per-link upright "softgates" -- give partial credit as each
+            // link approaches upright, breaking the symmetric plateau.
             float g1 = fmaxf(0.0f, c1n);
             float g2 = fmaxf(0.0f, c2n);
             float upright_gate = g1 * g2;
 
-            // Always-on light velocity damping -- bleeds runaway spin at
-            // any state, including the link2-spinning false attractor.
-            float vel_pen = 0.005f * (w1 * w1 + w2 * w2);
+            // Velocity damping ONLY in the upright zone.
+            float vel_pen = 0.05f * upright_gate * (w1 * w1 + w2 * w2);
 
-            float xn = *nx / DCP_XMAX;
-            *reward = 0.5f * (c1n + c2n)        // base cosine, range [-1, +1]
-                    + 1.0f * upright_gate       // strong upright bonus, [0, +1]
+            // Cart velocity penalty -- discourages "fly to the wall".
+            float xdn = *nxd / 8.0f;
+            float xn  = *nx  / DCP_XMAX;
+
+            // +1.0 baseline so surviving beats terminating early.
+            *reward = 1.0f
+                    + 0.5f * (c1n + c2n)        // base cosine,  [-1, +1]
+                    + 0.5f * g1                 // per-link credit (link 1)
+                    + 1.0f * g2                 // per-link credit (link 2 - harder)
+                    + 2.0f * upright_gate       // BIG bonus when both up
                     - 1.0f * E_err              // uncapped energy penalty
-                    - 0.1f * xn * xn
+                    - 0.5f * xn * xn
+                    - 0.2f * xdn * xdn
                     - vel_pen;
+
+            if ((*nx < -DCP_XMAX) || (*nx > DCP_XMAX)) {
+                *reward -= 100.0f;
+            }
 
             // Only terminate on cart bounds -- angles are free to spin
             *terminated = (*nx < -DCP_XMAX) || (*nx > DCP_XMAX);
@@ -278,12 +290,22 @@ def _step_python(state, force):
     g1 = max(0.0, c1n)
     g2 = max(0.0, c2n)
     upright_gate = g1 * g2
-    vel_pen      = 0.005 * (nth1d**2 + nth2d**2)
+    vel_pen      = 0.05 * upright_gate * (nth1d**2 + nth2d**2)
 
-    xn = nx / 2.4
-    reward     = 0.5 * (c1n + c2n) + 1.0 * upright_gate \
-               - 1.0 * E_err - 0.1 * xn**2 - vel_pen
+    xn  = nx  / 2.4
+    xdn = nxd / 8.0
+    reward = 1.0 \
+           + 0.5 * (c1n + c2n) \
+           + 0.5 * g1 \
+           + 1.0 * g2 \
+           + 2.0 * upright_gate \
+           - 1.0 * E_err \
+           - 0.5 * xn**2 \
+           - 0.2 * xdn**2 \
+           - vel_pen
     terminated = abs(nx) > 2.4
+    if terminated:
+        reward -= 100.0
     return next_state, reward, terminated
 
 
@@ -512,12 +534,15 @@ def evaluate(
         g1_arr   = np.maximum(0.0, cos1)
         g2_arr   = np.maximum(0.0, cos2)
         gate_arr = g1_arr * g2_arr
+        base_part  = 1.0
         cos_part   = (0.5 * (cos1 + cos2)).mean()
-        bonus_part = gate_arr.mean()
-        e_part     = -E_err.mean()
-        x_part     = -0.1 * (traj_arr[:, 0] / 2.4) ** 2
-        x_part     = x_part.mean()
-        vel_part   = -0.005 * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2).mean()
+        g1_part    = 0.5 * g1_arr.mean()
+        g2_part    = 1.0 * g2_arr.mean()
+        bonus_part = 2.0 * gate_arr.mean()
+        e_part     = -1.0 * E_err.mean()
+        x_part     = -0.5 * ((traj_arr[:, 0] / 2.4) ** 2).mean()
+        xd_part    = -0.2 * ((traj_arr[:, 1] / 8.0) ** 2).mean()
+        vel_part   = -0.05 * (gate_arr * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2)).mean()
 
         print(
             f"  last {len(traj_arr)} steps:"
@@ -527,8 +552,9 @@ def evaluate(
         print(
             f"             "
             f"  <E/E_tgt>={E.mean()/_E_TARGET:+.3f}  <E_err>={E_err.mean():.3f}"
-            f"  reward parts: cos={cos_part:+.3f}  bonus={bonus_part:+.3f}"
-            f"  E={e_part:+.3f}  x={x_part:+.3f}  vel={vel_part:+.3f}"
+            f"  reward parts: base={base_part:+.2f}  cos={cos_part:+.3f}"
+            f"  g1={g1_part:+.3f}  g2={g2_part:+.3f}  bonus={bonus_part:+.3f}"
+            f"  E={e_part:+.3f}  x={x_part:+.3f}  xd={xd_part:+.3f}  vel={vel_part:+.3f}"
         )
 
     if do_render:
