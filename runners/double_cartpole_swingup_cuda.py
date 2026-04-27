@@ -190,21 +190,20 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             float PE = m12    * DCP_G * DCP_L1 * c1n
                      + DCP_M2 * DCP_G * DCP_L2 * c2n;
 
-            // ASYMMETRIC energy penalty -- under-energy hurts 2x more than
-            // over-energy. This breaks the E~0.5*E_tgt plateau by making
-            // "still missing energy" much more painful than overshooting.
-            float E_diff = (KE + PE) - DCP_E_TARGET;
-            float E_err  = (E_diff < 0.0f)
-                         ? 2.0f * (-E_diff) / (2.0f * DCP_E_TARGET)
-                         :         E_diff   / (2.0f * DCP_E_TARGET);
+            // SYMMETRIC energy penalty -- with bins>=20 the policy can
+            // pump finely; the previous 2x under-bias caused overshoot
+            // (E/E_tgt up to 2-3) and "fly-through" of the upright zone.
+            float E_err = fabsf((KE + PE) - DCP_E_TARGET)
+                        / (2.0f * DCP_E_TARGET);
 
             // Per-link upright "softgates" -- partial credit per link.
             float g1 = fmaxf(0.0f, c1n);
             float g2 = fmaxf(0.0f, c2n);
             float upright_gate = g1 * g2;
 
-            // Velocity damping ONLY in the upright zone.
-            float vel_pen = 0.05f * upright_gate * (w1 * w1 + w2 * w2);
+            // Velocity damping in the upright zone -- stronger now (0.1)
+            // to force stabilization once both links cross above horizontal.
+            float vel_pen = 0.1f * upright_gate * (w1 * w1 + w2 * w2);
 
             // Cart velocity penalty -- discourages "fly to the wall".
             float xdn = *nxd / 8.0f;
@@ -288,16 +287,12 @@ def _step_python(state, force):
        +        m2 * l1 * l2 * nth1d * nth2d * c12n
     PE = m12 * 9.8 * l1 * c1n + m2 * 9.8 * l2 * c2n
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
-    E_diff = (KE + PE) - E_target
-    if E_diff < 0.0:
-        E_err = 2.0 * (-E_diff) / (2.0 * E_target)   # under-energy: 2x penalty
-    else:
-        E_err =        E_diff   / (2.0 * E_target)   # over-energy:  1x penalty
+    E_err    = abs((KE + PE) - E_target) / (2.0 * E_target)  # symmetric
 
     g1 = max(0.0, c1n)
     g2 = max(0.0, c2n)
     upright_gate = g1 * g2
-    vel_pen      = 0.05 * upright_gate * (nth1d**2 + nth2d**2)
+    vel_pen      = 0.1 * upright_gate * (nth1d**2 + nth2d**2)
 
     xn  = nx  / 2.4
     xdn = nxd / 8.0
@@ -535,10 +530,7 @@ def evaluate(
         w1_abs = np.abs(traj_arr[:, 3])
         w2_abs = np.abs(traj_arr[:, 5])
         E      = np.array([_pole_energy(s) for s in traj_arr])
-        E_diff = E - _E_TARGET
-        E_err  = np.where(E_diff < 0.0,
-                          2.0 * np.abs(E_diff) / (2.0 * _E_TARGET),
-                                    E_diff    / (2.0 * _E_TARGET))
+        E_err  = np.abs(E - _E_TARGET) / (2.0 * _E_TARGET)  # symmetric
 
         # Reward decomposition (matches the CUDA shape exactly).
         g1_arr   = np.maximum(0.0, cos1)
@@ -552,7 +544,7 @@ def evaluate(
         e_part     = -1.0 * E_err.mean()
         x_part     = -0.5 * ((traj_arr[:, 0] / 2.4) ** 2).mean()
         xd_part    = -0.2 * ((traj_arr[:, 1] / 8.0) ** 2).mean()
-        vel_part   = -0.05 * (gate_arr * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2)).mean()
+        vel_part   = -0.1 * (gate_arr * (traj_arr[:, 3]**2 + traj_arr[:, 5]**2)).mean()
 
         print(
             f"  last {len(traj_arr)} steps:"
