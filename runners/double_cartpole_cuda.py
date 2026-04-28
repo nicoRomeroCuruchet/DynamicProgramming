@@ -52,24 +52,24 @@ from src.cuda_policy_iteration import CudaPolicyIteration6D, CudaPIConfig
 
 # ── Grid & action space ────────────────────────────────────────────────────────
 
-BINS_PER_DIM = 15   # increase if your GPU has enough VRAM (see memory estimates above)
+BINS_PER_DIM = 20   # 20^6 = 64M states ~ 2.1 GB VRAM (fits RTX 3090)
 
-_TH_THRESH = 20.0 * np.pi / 180.0   # 20 degrees = 0.3491 rad
+_TH_THRESH = 38.0 * np.pi / 180.0   # 38 degrees = 0.6632 rad
 
 # Grid bounds extend slightly beyond the termination threshold so barycentric
 # interpolation doesn't always clamp at the boundary.
-_TH_BOUND = _TH_THRESH * 1.15   # ~23 deg
+_TH_BOUND = _TH_THRESH * 1.15   # ~44 deg
 
 BINS_SPACE = {
     "x":       np.linspace(-2.5,      2.5,      BINS_PER_DIM, dtype=np.float32),
-    "x_dot":   np.linspace(-5.0,      5.0,      BINS_PER_DIM, dtype=np.float32),
+    "x_dot":   np.linspace(-8.0,      8.0,      BINS_PER_DIM, dtype=np.float32),
     "theta1":  np.linspace(-_TH_BOUND, _TH_BOUND, BINS_PER_DIM, dtype=np.float32),
-    "th1_dot": np.linspace(-5.0,      5.0,      BINS_PER_DIM, dtype=np.float32),
+    "th1_dot": np.linspace(-8.0,      8.0,      BINS_PER_DIM, dtype=np.float32),
     "theta2":  np.linspace(-_TH_BOUND, _TH_BOUND, BINS_PER_DIM, dtype=np.float32),
-    "th2_dot": np.linspace(-5.0,      5.0,      BINS_PER_DIM, dtype=np.float32),
+    "th2_dot": np.linspace(-8.0,      8.0,      BINS_PER_DIM, dtype=np.float32),
 }
 
-ACTION_SPACE = np.array([-10.0, 0.0, 10.0], dtype=np.float32)
+ACTION_SPACE = np.array([-20.0, -10.0, 0.0, 10.0, 20.0], dtype=np.float32)
 
 
 # ── CUDA subclass ──────────────────────────────────────────────────────────────
@@ -94,8 +94,8 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
         #define DCP_L2        0.5f    // second pole half-length
         #define DCP_TAU       0.02f
         #define DCP_X_THRESH    2.4f
-        #define DCP_TH_THRESH   0.34906585f   // 20 deg in rad = pi/9
-        #define DCP_X_PENALTY   0.0f         // quadratic position penalty weight
+        #define DCP_TH_THRESH   0.66322512f   // 38 deg in rad
+        #define DCP_X_PENALTY   0.5f         // quadratic position penalty weight
 
         __device__ void step_dynamics(
             float x,   float xd,
@@ -158,9 +158,13 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
             *nth2  = th2  + DCP_TAU * th2d;
             *nth2d = th2d + DCP_TAU * th2acc;
 
-            // Quadratic position penalty: 1 at centre, 0.5 at threshold edge
-            float xn_norm = *nx / DCP_X_THRESH;
-            *reward = 1.0f - DCP_X_PENALTY * xn_norm * xn_norm;
+            // Smooth bowl reward: 1.0 at (x=0, th1=0, th2=0), falls to 0 at thresholds
+            float xn_norm  = *nx   / DCP_X_THRESH;
+            float th1_norm = *nth1 / DCP_TH_THRESH;
+            float th2_norm = *nth2 / DCP_TH_THRESH;
+            *reward = 1.0f - DCP_X_PENALTY * xn_norm  * xn_norm
+                           - 0.5f          * th1_norm * th1_norm
+                           - 0.5f          * th2_norm * th2_norm;
 
             *terminated = (*nx   < -DCP_X_THRESH)  || (*nx   > DCP_X_THRESH)
                        || (*nth1 < -DCP_TH_THRESH) || (*nth1 > DCP_TH_THRESH)
@@ -231,7 +235,10 @@ def _step_python(state, force):
         abs(nth1) > _TH_THRESH or
         abs(nth2) > _TH_THRESH
     )
-    reward = 1.0 - 0.5 * (nx / 2.4) ** 2   # matches CUDA DCP_X_PENALTY reward
+    reward = (1.0
+             - 0.5 * (nx   / 2.4)        ** 2
+             - 0.5 * (nth1 / _TH_THRESH) ** 2
+             - 0.5 * (nth2 / _TH_THRESH) ** 2)
     return next_state, reward, terminated
 
 
