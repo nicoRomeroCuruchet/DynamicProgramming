@@ -53,10 +53,10 @@ class DPPolicy:
 
 # ── Switch thresholds ──────────────────────────────────────────────────────────
 # Balance DP grid covers ±0.401 rad (±23°). Stay well inside with margin.
-_ENTER_TH  = 0.28   # rad (~16°) — enter balance mode (conservative vs ±20° termination)
-_ENTER_W   = 3.5    # rad/s      (conservative vs ±5 rad/s grid bound)
-_EXIT_TH   = 0.35   # rad (~20°) — hysteresis: exit balance mode
-_EXIT_W    = 4.5    # rad/s
+_ENTER_TH  = 0.32   # rad (~18°) — enter balance mode (within ±23° grid bound)
+_ENTER_W   = 4.0    # rad/s      (within ±5 rad/s grid bound)
+_EXIT_TH   = 0.38   # rad (~22°) — hysteresis: exit balance mode
+_EXIT_W    = 5.0    # rad/s
 
 
 def _use_balance(th1, w1, th2, w2, currently_balancing: bool) -> bool:
