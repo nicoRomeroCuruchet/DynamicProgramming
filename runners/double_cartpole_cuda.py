@@ -95,7 +95,7 @@ class DoubleCartPoleCuda(CudaPolicyIteration6D):
         #define DCP_TAU       0.02f
         #define DCP_X_THRESH    2.4f
         #define DCP_TH_THRESH   0.34906585f   // 20 deg in rad = pi/9
-        #define DCP_X_PENALTY   0.0f         // quadratic position penalty weight
+        #define DCP_X_PENALTY   0.5f         // quadratic position penalty weight
 
         __device__ void step_dynamics(
             float x,   float xd,
@@ -231,7 +231,7 @@ def _step_python(state, force):
         abs(nth1) > _TH_THRESH or
         abs(nth2) > _TH_THRESH
     )
-    reward = 1.0 - 0.5 * (nx / 2.4) ** 2   # matches CUDA DCP_X_PENALTY reward
+    reward = 1.0 - 0.5 * (nx / 2.4) ** 2
     return next_state, reward, terminated
 
 
