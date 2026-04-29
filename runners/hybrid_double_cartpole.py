@@ -72,24 +72,28 @@ def _use_balance(th1, w1, th2, w2, currently_balancing: bool) -> bool:
 # ── Evaluation loop ────────────────────────────────────────────────────────────
 
 def evaluate(n_episodes: int = 3, steps: int = 1000,
-             render: bool = False, seed: int = 42) -> None:
+             render: bool = False, record_path: Path = None,
+             seed: int = 42) -> None:
 
     balance = DPPolicy(BALANCE_POLICY_PATH)
     swingup = DPPolicy(SWINGUP_POLICY_PATH)
 
     rng = np.random.default_rng(seed)
 
-    if render:
-        # Reuse the swingup renderer (same cart-pole geometry)
+    recording  = record_path is not None
+    do_render  = render or recording
+    all_frames = []
+
+    if do_render:
         import pygame
         from runners.double_cartpole_swingup_cuda import _render_frame_pygame, _SCREEN_W, _SCREEN_H
         pygame.init()
-        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H))
+        flags = 0 if render else pygame.NOFRAME
+        screen = pygame.display.set_mode((_SCREEN_W, _SCREEN_H), flags)
         pygame.display.set_caption("Hybrid Double CartPole")
         clock = pygame.time.Clock()
 
     for ep in range(n_episodes):
-        # Start hanging down (swing-up task)
         state = np.array([0.0, 0.0, np.pi, 0.0, np.pi, 0.0], dtype=np.float32)
         state[:2] += rng.uniform(-0.05, 0.05, size=2).astype(np.float32)
 
@@ -99,8 +103,11 @@ def evaluate(n_episodes: int = 3, steps: int = 1000,
         terminated    = False
 
         for step in range(steps):
-            if render:
+            if do_render:
                 _render_frame_pygame(screen, clock, state)
+                if recording:
+                    frame = pygame.surfarray.array3d(screen)
+                    all_frames.append(frame.transpose(1, 0, 2))
 
             x, xd, th1, w1, th2, w2 = state
             balancing = _use_balance(th1, w1, th2, w2, balancing)
@@ -126,8 +133,24 @@ def evaluate(n_episodes: int = 3, steps: int = 1000,
             f"w1={w1:+.2f} w2={w2:+.2f}"
         )
 
-    if render:
+    if do_render:
         pygame.quit()
+
+    if recording and all_frames:
+        import imageio
+        record_path = Path(record_path)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        if record_path.suffix.lower() == ".gif":
+            imageio.mimsave(str(record_path), all_frames, fps=50, loop=0)
+        elif record_path.suffix.lower() == ".mp4":
+            writer = imageio.get_writer(str(record_path), fps=50, codec="libx264",
+                                        quality=8, pixelformat="yuv420p")
+            for frame in all_frames:
+                writer.append_data(frame)
+            writer.close()
+        else:
+            imageio.mimsave(str(record_path), all_frames, fps=50)
+        print(f"Video saved to {record_path.resolve()}")
 
 
 if __name__ == "__main__":
@@ -135,7 +158,9 @@ if __name__ == "__main__":
     parser.add_argument("--episodes", type=int, default=3)
     parser.add_argument("--steps",    type=int, default=1000)
     parser.add_argument("--render",   action="store_true")
+    parser.add_argument("--record",   type=Path, default=None, metavar="PATH",
+                        help="Save video to PATH (.mp4 or .gif)")
     parser.add_argument("--seed",     type=int, default=42)
     args = parser.parse_args()
 
-    evaluate(args.episodes, args.steps, args.render, args.seed)
+    evaluate(args.episodes, args.steps, args.render, args.record, args.seed)
