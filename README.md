@@ -181,6 +181,38 @@ Same as Mountain Car but with a continuous action space.
 
 ---
 
+### Double Pendulum (Underactuated)
+
+Two coupled links on a **fixed pivot** with a single torque applied at the base joint (link 1). The system is **underactuated** — link 2 has no direct actuator, it can only be moved through the inertial coupling with link 1. Generalisation of the classic Pendulum with a second free link, no cart.
+
+Dynamics follow the **Lagrangian formulation** with a 2×2 mass matrix inverted analytically:
+
+```
+M = | (m₁+m₂)·l₁²            m₂·l₁·l₂·cos(θ₁−θ₂) |
+    | m₂·l₁·l₂·cos(θ₁−θ₂)    m₂·l₂²              |
+```
+
+| State | Bounds |
+|---|---|
+| Link 1 angle θ₁ | [-π, π] rad (full range, wrapped) |
+| Link 1 angular velocity θ̇₁ | [-15, 15] rad/s |
+| Link 2 angle θ₂ | [-π, π] rad (full range, wrapped) |
+| Link 2 angular velocity θ̇₂ | [-15, 15] rad/s |
+
+**Physical parameters:** m₁ = m₂ = 0.1 kg, l₁ = l₂ = 0.5 m, g = 9.8 m/s², τ = 0.02 s
+
+**Actions:** 11 torque values in [-3, 3] N·m, including ±0.05, ±0.15 for fine balancing &nbsp;|&nbsp; **Grid:** up to 50⁴ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration4D`
+
+**Reward shaping:** combined cosine + asymmetric energy penalty + multiplicative upright gate + smooth "deep stillness" bowl + anti-alignment penalty. The deep bowl is the only term that distinguishes "oscillating around upright" from "stationary at upright", so it forces the policy to find the true fixed point instead of a tight limit cycle.
+
+> **Notes:**
+> - Useful as a **fast 4D sandbox** for shaping experiments that would be expensive on the 6D Double CartPole. Training: `--bins 15` ≈ 5 sec, `--bins 35` ≈ 6 min, `--bins 50` ≈ 30 min on RTX 3090.
+> - Underactuated swing-up has multiple basins of attraction. Sustained stabilisation typically requires `--bins ≥ 50` plus the included fine-action set.
+
+![Double Pendulum](gifs/pendulum_doble.gif)
+
+---
+
 ### Double CartPole
 
 Two poles of different lengths balanced simultaneously on a single cart. 6-dimensional state space.
@@ -238,10 +270,13 @@ DynamicProgramming/
 │   └── cuda_policy_iteration.py   # Core engine: CudaPolicyIteration2D/4D/6D + CudaPIConfig
 ├── runners/
 │   ├── cartpole_cuda.py
+│   ├── cartpole_swingup_cuda.py
 │   ├── pendulum_cuda.py
 │   ├── mountain_car_cuda.py
 │   ├── continuous_mountain_car_cuda.py
+│   ├── double_pendulum_swingup_cuda.py    # NEW: underactuated 4D double pendulum
 │   ├── double_cartpole_cuda.py
+│   ├── double_cartpole_swingup_cuda.py
 │   └── overhead_crane_cuda.py
 ├── utils/
 │   └── barycentric.py             # Barycentric interpolation for policy inference
@@ -369,6 +404,7 @@ python3 runners/cartpole_cuda.py                --record gifs/cartpole.gif      
 python3 runners/pendulum_cuda.py                --record gifs/pendulum.gif                --episodes 3 --no-plot
 python3 runners/mountain_car_cuda.py            --record gifs/mountain_car.gif            --episodes 3 --no-plot
 python3 runners/continuous_mountain_car_cuda.py --record gifs/continuous_mountain_car.gif --episodes 3 --no-plot
+python3 runners/double_pendulum_swingup_cuda.py --record gifs/pendulum_doble.gif          --episodes 3 --no-plot --bins 50
 python3 runners/double_cartpole_cuda.py         --record gifs/double_cartpole.gif         --episodes 3 --no-plot
 python3 runners/overhead_crane_cuda.py          --record gifs/overhead_crane.gif          --episodes 3 --no-plot
 ```
