@@ -20,10 +20,11 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # Override these for non-CUDA-12 stacks:
-        # CUDA_VERSION: 11.8.0
-        # CUPY_PACKAGE: cupy-cuda11x
-        CUDA_VERSION: 12.4.1
+        # CUDA inside the container must be <= the CUDA version reported by
+        # `nvidia-smi` on the host (consumer GPUs don't support forward compat).
+        # 12.2.2 works with NVIDIA driver >= 525 and is widely available.
+        # For older drivers (470-525), switch to 11.8.0 + cupy-cuda11x.
+        CUDA_VERSION: 12.2.2
         CUPY_PACKAGE: cupy-cuda12x
     image: cuda-pi:latest
 

@@ -29,7 +29,7 @@
 #       xvfb-run -a python3 runners/pendulum_cuda.py \
 #                --record gifs/pendulum.gif --episodes 3 --no-plot
 
-ARG CUDA_VERSION=12.4.1
+ARG CUDA_VERSION=12.2.2
 ARG UBUNTU_VERSION=22.04
 
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION}
