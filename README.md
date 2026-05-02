@@ -136,6 +136,25 @@ Classic inverted pendulum. A force is applied to a cart to keep a pole balanced 
 
 ---
 
+### CartPole Swing-Up
+
+Same dynamics as CartPole but with the **full angle range** [-π, π] and the pole starting hanging down (θ=π). The policy must inject energy via cart movement to swing the pole up to θ=0 and stabilise it.
+
+| State | Bounds |
+|---|---|
+| Cart position | [-2.5, 2.5] m (terminates at \|x\| > 2.4) |
+| Cart velocity | [-5, 5] m/s |
+| Pole angle θ | [-π, π] rad (full range, wrapped) |
+| Pole angular velocity θ̇ | [-10, 10] rad/s |
+
+**Actions:** {-20, -10, 0, +10, +20} N &nbsp;|&nbsp; **Grid:** 50⁴ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration4D`
+
+**Reward shaping:** `cos(θ) − 0.5·E_err − 0.1·(x/x_max)²`, where `E_err = |E_pole − E_target| / (2·E_target)`. The energy term breaks the gradient flatness at the hanging position and propagates the value function from the upright region into the bottom region.
+
+![CartPole Swing-Up](gifs/cartpole_swingup.gif)
+
+---
+
 ### Pendulum
 
 Swing up and stabilise a free pendulum at the upright position.
@@ -234,6 +253,53 @@ Two poles of different lengths balanced simultaneously on a single cart. 6-dimen
 
 ---
 
+### Double CartPole Swing-Up
+
+Same dynamics as Double CartPole but with the **full angle range** [-π, π] for both poles, starting from hanging-down (θ₁ = θ₂ = π). The policy must (a) inject energy via the cart to swing both poles up, and (b) stabilise the unstable double-inverted equilibrium. 6-dimensional state space.
+
+| State | Bounds |
+|---|---|
+| Cart position | [-2.5, 2.5] m (terminates at \|x\| > 2.4) |
+| Cart velocity | [-8, 8] m/s |
+| Pole 1 angle θ₁ | [-π, π] rad (full range, wrapped) |
+| Pole 1 angular velocity θ̇₁ | [-15, 15] rad/s |
+| Pole 2 angle θ₂ | [-π, π] rad (full range, wrapped) |
+| Pole 2 angular velocity θ̇₂ | [-15, 15] rad/s |
+
+**Actions:** 9 force values in [-60, 60] N (with ±3 N for fine balancing) &nbsp;|&nbsp; **Grid:** 12⁶–20⁶ nodes &nbsp;|&nbsp; **Base class:** `CudaPolicyIteration6D`
+
+**Reward shaping:** baseline + cosine sum + per-link credits + multiplicative upright gate + asymmetric energy penalty + cart position/velocity penalties + upright-gated velocity damping + terminal bound penalty. Carefully tuned to escape the "link 1 upright + link 2 free-spinning" false attractor.
+
+> **Note:** This is the hardest task in the repo. With `--bins 20` and the included shaping, training takes ~30 min on RTX 3090 and the policy achieves partial swing-up. For consistent stabilisation, see Hybrid Double CartPole below.
+
+![Double CartPole Swing-Up](gifs/double_cartpole_swingup.gif)
+
+---
+
+### Hybrid Double CartPole (DP + DP)
+
+Two-stage controller that **chains** two pre-trained DP policies — pure DP, no LQR or other framework involved.
+
+| Phase | Policy | When active |
+|---|---|---|
+| **Swing-up** | `double_cartpole_swingup_cuda` (full angle range) | far from upright |
+| **Balance** | `double_cartpole_cuda` (narrow ±0.3 rad range, fine bins) | near upright |
+
+**Switch logic** (with hysteresis to prevent rapid toggling):
+
+```
+Enter balance:  |θ₁| < 0.28  AND  |θ₂| < 0.28  AND  |ω₁| < 3.5  AND  |ω₂| < 3.5
+Return swing:   |θ₁| > 0.35  OR   |θ₂| > 0.35  OR   |ω₁| > 4.5  OR   |ω₂| > 4.5
+```
+
+The balance policy is trained on a much finer grid restricted to the upright neighbourhood, giving precision impossible to achieve with a single global policy. The swing-up policy handles the high-energy regime.
+
+**Prerequisite:** both `double_cartpole_swingup_cuda_policy.npz` and `double_cartpole_cuda_policy.npz` must exist in `results/` before running this script — train them individually first.
+
+![Hybrid Double CartPole](gifs/hybrid_double_cartpole.gif)
+
+---
+
 ### Overhead Crane (Anti-Sway)
 
 A trolley moves along a fixed rail carrying a suspended load. Goal: transport the load from one end of the rail to the other while minimising swing.
@@ -269,15 +335,16 @@ DynamicProgramming/
 ├── src/
 │   └── cuda_policy_iteration.py   # Core engine: CudaPolicyIteration2D/4D/6D + CudaPIConfig
 ├── runners/
-│   ├── cartpole_cuda.py
-│   ├── cartpole_swingup_cuda.py
-│   ├── pendulum_cuda.py
-│   ├── mountain_car_cuda.py
-│   ├── continuous_mountain_car_cuda.py
-│   ├── double_pendulum_swingup_cuda.py    # NEW: underactuated 4D double pendulum
-│   ├── double_cartpole_cuda.py
-│   ├── double_cartpole_swingup_cuda.py
-│   └── overhead_crane_cuda.py
+│   ├── cartpole_cuda.py                   # CartPole              (4D balance)
+│   ├── cartpole_swingup_cuda.py           # CartPole              (4D swing-up)
+│   ├── pendulum_cuda.py                   # Pendulum              (2D swing-up)
+│   ├── mountain_car_cuda.py               # Mountain Car          (2D)
+│   ├── continuous_mountain_car_cuda.py    # Continuous Mtn Car    (2D)
+│   ├── double_pendulum_swingup_cuda.py    # Double Pendulum       (4D underactuated)
+│   ├── double_cartpole_cuda.py            # Double CartPole       (6D balance)
+│   ├── double_cartpole_swingup_cuda.py    # Double CartPole       (6D swing-up)
+│   ├── hybrid_double_cartpole.py          # Hybrid DP + DP        (6D swing-up + balance)
+│   └── overhead_crane_cuda.py             # Overhead Crane        (4D anti-sway)
 ├── utils/
 │   └── barycentric.py             # Barycentric interpolation for policy inference
 ├── gifs/                          # Pre-recorded environment demos
@@ -401,11 +468,14 @@ python3 runners/<runner>.py --random 5
 
 ```bash
 python3 runners/cartpole_cuda.py                --record gifs/cartpole.gif                --episodes 3 --no-plot
+python3 runners/cartpole_swingup_cuda.py        --record gifs/cartpole_swingup.gif        --episodes 3 --no-plot
 python3 runners/pendulum_cuda.py                --record gifs/pendulum.gif                --episodes 3 --no-plot
 python3 runners/mountain_car_cuda.py            --record gifs/mountain_car.gif            --episodes 3 --no-plot
 python3 runners/continuous_mountain_car_cuda.py --record gifs/continuous_mountain_car.gif --episodes 3 --no-plot
 python3 runners/double_pendulum_swingup_cuda.py --record gifs/pendulum_doble.gif          --episodes 3 --no-plot --bins 50
 python3 runners/double_cartpole_cuda.py         --record gifs/double_cartpole.gif         --episodes 3 --no-plot
+python3 runners/double_cartpole_swingup_cuda.py --record gifs/double_cartpole_swingup.gif --episodes 3 --no-plot
+python3 runners/hybrid_double_cartpole.py       --record gifs/hybrid_double_cartpole.gif  --episodes 3
 python3 runners/overhead_crane_cuda.py          --record gifs/overhead_crane.gif          --episodes 3 --no-plot
 ```
 
@@ -423,19 +493,29 @@ python3 runners/overhead_crane_cuda.py --retrain --target-x 0.0 --start-x 2.5
 
 ## CLI Reference
 
-All runners share a common set of arguments:
+**All runners share the exact same set of arguments.** This makes batch scripts portable across environments — change only the runner name and the rest of the command line stays the same.
 
 | Argument | Default | Description |
 |---|---|---|
-| `--render` | off | Open a live window during evaluation |
-| `--record PATH` | off | Save video to `.gif` or `.mp4` (MP4 needs `imageio[ffmpeg]`) |
-| `--random [N]` | off | Run N episodes with a random policy as baseline (default N=5) |
-| `--episodes N` | 5 | Number of evaluation episodes |
-| `--bins N` | varies | Bins per state dimension — trades memory for resolution |
-| `--seed N` | 42 | Random seed for episode resets |
+| `--render` | off | Open a live pygame window during evaluation |
+| `--record PATH` | off | Save evaluation video to `.gif` or `.mp4` (MP4 needs `imageio[ffmpeg]`) |
+| `--random [N]` | off | Run N episodes with a random policy as baseline, no training (default N=5) |
+| `--episodes N` | **5** | Number of evaluation episodes |
+| `--steps N` | **1000** | Max steps per evaluation episode |
+| `--bins N` | per-runner | Bins per state dimension — trades memory for resolution |
+| `--seed N` | **42** | Random seed for episode resets |
 | `--no-plot` | off | Skip saving value function / policy slice plots |
 | `--retrain` | off | Force retraining even if a saved policy exists |
-| `--save-path PATH` | `results/…` | Where to save / load the policy `.npz` |
+| `--save-path PATH` | `results/<runner>_policy.npz` | Where to save / load the policy `.npz` |
+
+**Runner-specific arguments:**
+
+| Runner | Argument | Default | Description |
+|---|---|---|---|
+| `overhead_crane_cuda.py` | `--start-x X` | `2.5` | Initial trolley position (m) |
+| `overhead_crane_cuda.py` | `--target-x X` | `-2.5` | Target trolley position (m) — baked into CUDA at compile time |
+
+**Notes on the hybrid runner:** `hybrid_double_cartpole.py` accepts the same flags for CLI uniformity, but it never trains — it loads two pre-trained DP policies (`double_cartpole_swingup_cuda_policy.npz` + `double_cartpole_cuda_policy.npz`) and chains them. The flags `--bins`, `--no-plot`, `--retrain`, `--save-path`, and `--random` are accepted but ignored.
 
 **Overhead Crane only:**
 

@@ -393,13 +393,15 @@ def evaluate(
     render: bool = False,
     start_x: float = 2.5,
     record_path: Path = None,
+    seed: int = 42,
+    max_steps: int = 1000,
 ) -> None:
     from utils.barycentric import get_optimal_action
 
     recording = record_path is not None
     do_render  = render or recording   # recording always needs a surface
 
-    rng = np.random.default_rng(seed=42)
+    rng = np.random.default_rng(seed=seed)
 
     if do_render:
         import pygame
@@ -419,7 +421,7 @@ def evaluate(
         total_reward = 0.0
         reached_goal = False
 
-        for step in range(1000):
+        for step in range(max_steps):
             if do_render:
                 import pygame
                 for event in pygame.event.get():
@@ -473,6 +475,30 @@ def evaluate(
             imageio.mimsave(str(record_path), all_frames, fps=_RENDER_FPS,
                             macro_block_size=1)
         print(f"Video saved to {record_path.resolve()}")
+
+
+def evaluate_random(
+    n_episodes: int = 5,
+    seed: int = 42,
+    max_steps: int = 1000,
+) -> None:
+    """Random policy rollout - physics sanity check, no training needed."""
+    rng = np.random.default_rng(seed=seed)
+    actions = np.array([-30.0, -15.0, 0.0, 15.0, 30.0], dtype=np.float32)
+    target_x = -2.5  # default
+
+    for ep in range(n_episodes):
+        x0     = float(np.clip(2.5 + rng.uniform(-0.1, 0.1), -2.8, 2.8))
+        theta0 = float(rng.uniform(-0.05, 0.05))
+        state  = np.array([x0, 0.0, theta0, 0.0], dtype=np.float32)
+        total_reward = 0.0
+        for step in range(max_steps):
+            force = float(rng.choice(actions))
+            state, reward, terminated = _step_python(state, force, target_x=target_x)
+            total_reward += reward
+            if terminated:
+                break
+        print(f"[random] Episode {ep + 1}: {step + 1} steps | reward = {total_reward:.1f}")
 
 
 # ---- Visualisation -------------------------------------------------------
@@ -550,11 +576,15 @@ if __name__ == "__main__":
     )
     parser.add_argument("--render",    action="store_true",
                         help="Render evaluation episodes with pygame")
+    parser.add_argument("--random",    type=int, nargs="?", const=5, default=None, metavar="N",
+                        help="Run N random-policy episodes as baseline (default N=5)")
     parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
                         help="Save evaluation video to PATH (.gif or .mp4). "
                              "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",  type=int, default=5,
                         help="Number of evaluation episodes (default: 5)")
+    parser.add_argument("--steps",     type=int, default=1000,
+                        help="Max steps per episode (default: 1000)")
     parser.add_argument("--start-x",   type=float, default=2.5,
                         help="Initial trolley position for evaluation in metres (default: 2.5)")
     parser.add_argument("--target-x",  type=float, default=-2.5,
@@ -572,20 +602,24 @@ if __name__ == "__main__":
                         default=Path("results/overhead_crane_cuda_policy.npz"))
     args = parser.parse_args()
 
-    if args.bins != BINS_PER_DIM:
-        for key in BINS_SPACE:
-            lo, hi = BINS_SPACE[key][0], BINS_SPACE[key][-1]
-            BINS_SPACE[key] = np.linspace(lo, hi, args.bins, dtype=np.float32)
-
-    if args.save_path.exists() and not args.retrain:
-        print(f"[+] Loading existing policy from {args.save_path}")
-        pi = OverheadCraneCuda.load(args.save_path)
+    if args.random is not None:
+        evaluate_random(n_episodes=args.random, seed=args.seed, max_steps=args.steps)
     else:
-        print("[*] Training new policy...")
-        pi = train(args.save_path, target_x=args.target_x)
+        if args.bins != BINS_PER_DIM:
+            for key in BINS_SPACE:
+                lo, hi = BINS_SPACE[key][0], BINS_SPACE[key][-1]
+                BINS_SPACE[key] = np.linspace(lo, hi, args.bins, dtype=np.float32)
 
-    evaluate(pi, n_episodes=args.episodes, render=args.render,
-             start_x=args.start_x, record_path=args.record)
-    if not args.no_plot:
-        plot_value_slice(pi)
-        plot_policy_slice(pi)
+        if args.save_path.exists() and not args.retrain:
+            print(f"[+] Loading existing policy from {args.save_path}")
+            pi = OverheadCraneCuda.load(args.save_path)
+        else:
+            print("[*] Training new policy...")
+            pi = train(args.save_path, target_x=args.target_x)
+
+        evaluate(pi, n_episodes=args.episodes, render=args.render,
+                 start_x=args.start_x, record_path=args.record,
+                 seed=args.seed, max_steps=args.steps)
+        if not args.no_plot:
+            plot_value_slice(pi)
+            plot_policy_slice(pi)

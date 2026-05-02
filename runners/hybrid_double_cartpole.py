@@ -154,13 +154,43 @@ def evaluate(n_episodes: int = 3, steps: int = 1000,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", type=int, default=3)
-    parser.add_argument("--steps",    type=int, default=1000)
-    parser.add_argument("--render",   action="store_true")
-    parser.add_argument("--record",   type=Path, default=None, metavar="PATH",
-                        help="Save video to PATH (.mp4 or .gif)")
-    parser.add_argument("--seed",     type=int, default=42)
+    parser = argparse.ArgumentParser(
+        description="Hybrid Double CartPole - DP swing-up + DP balance"
+    )
+    parser.add_argument("--render",    action="store_true",
+                        help="Render evaluation episodes with pygame")
+    parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
+                        help="Save video to PATH (.gif or .mp4)")
+    parser.add_argument("--episodes",  type=int, default=5,
+                        help="Number of evaluation episodes (default: 5)")
+    parser.add_argument("--steps",     type=int, default=1000,
+                        help="Max steps per episode (default: 1000)")
+    parser.add_argument("--seed",      type=int, default=42,
+                        help="Random seed (default: 42)")
+    # The --random, --bins, --no-plot, --retrain, --save-path flags do not
+    # apply to the hybrid runner: it loads two pre-trained DP policies and
+    # never trains anything itself. They are accepted but ignored, so the
+    # CLI remains uniform across runners.
+    parser.add_argument("--random",    type=int, nargs="?", const=5, default=None,
+                        metavar="N",
+                        help="(ignored) hybrid runner does not support random baseline")
+    parser.add_argument("--bins",      type=int, default=None,
+                        help="(ignored) policies are loaded with their saved bins")
+    parser.add_argument("--no-plot",   action="store_true",
+                        help="(ignored) hybrid runner does not produce plots")
+    parser.add_argument("--retrain",   action="store_true",
+                        help="(ignored) hybrid runner only loads policies, never trains")
+    parser.add_argument("--save-path", type=Path, default=None,
+                        help="(ignored) hybrid uses fixed swingup/balance policy paths")
     args = parser.parse_args()
 
-    evaluate(args.episodes, args.steps, args.render, args.record, args.seed)
+    if args.random is not None:
+        print("[!] --random is not supported for the hybrid runner — exiting.")
+    else:
+        evaluate(
+            n_episodes=args.episodes,
+            steps=args.steps,
+            render=args.render,
+            record_path=args.record,
+            seed=args.seed,
+        )

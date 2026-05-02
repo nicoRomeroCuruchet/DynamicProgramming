@@ -537,17 +537,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Double CartPole — CUDA Policy Iteration")
     parser.add_argument("--render",      action="store_true",
                         help="Render evaluation episodes with pygame")
-    parser.add_argument("--random",      type=int, nargs="?", const=500, default=None,
-                        metavar="STEPS",
-                        help="Run random actions to check physics (no training needed). "
-                             "Optionally specify max steps per episode (default: 500)")
+    parser.add_argument("--random",      type=int, nargs="?", const=5, default=None,
+                        metavar="N",
+                        help="Run N random-policy episodes as baseline (default N=5 if flag given)")
     parser.add_argument("--record",      type=Path, default=None, metavar="PATH",
                         help="Save evaluation video to PATH (.gif or .mp4). "
                              "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",    type=int,  default=5,
                         help="Number of evaluation episodes (default: 5)")
-    parser.add_argument("--steps",       type=int,  default=500,
-                        help="Max steps per evaluation episode (default: 500)")
+    parser.add_argument("--steps",       type=int,  default=1000,
+                        help="Max steps per evaluation episode (default: 1000)")
     parser.add_argument("--bins",        type=int,  default=BINS_PER_DIM,
                         help=f"Bins per dimension (default: {BINS_PER_DIM}). "
                              "Memory: 12->~90MB, 15->~420MB, 20->~2.1GB")
@@ -563,7 +562,7 @@ if __name__ == "__main__":
 
     # --random bypasses training entirely
     if args.random is not None:
-        run_random(n_episodes=args.episodes, max_steps=args.random, render=args.render)
+        run_random(n_episodes=args.random, max_steps=args.steps, render=args.render)
     else:
         # Rebuild grid if --bins differs from default
         if args.bins != BINS_PER_DIM:

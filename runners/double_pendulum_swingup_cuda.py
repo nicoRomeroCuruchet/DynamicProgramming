@@ -703,13 +703,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--render",    action="store_true",
                         help="Render evaluation episodes with pygame")
-    parser.add_argument("--random",    type=int, nargs="?", const=3, default=None,
+    parser.add_argument("--random",    type=int, nargs="?", const=5, default=None,
                         metavar="N",
                         help="Run N random-policy episodes (physics check)")
     parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
                         help="Save evaluation video to PATH (.gif or .mp4)")
-    parser.add_argument("--episodes",  type=int, default=3,
-                        help="Number of evaluation episodes (default: 3)")
+    parser.add_argument("--episodes",  type=int, default=5,
+                        help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--steps",     type=int, default=1000,
                         help="Max steps per episode (default: 1000)")
     parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
