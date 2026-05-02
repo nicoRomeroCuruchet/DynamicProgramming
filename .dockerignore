@@ -1,0 +1,32 @@
+# Local dev / build artifacts that should NEVER end up in the image.
+env/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks and editor state
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Heavy artifacts -- mount via -v at runtime instead
+results/
+gifs/
+trials/
+autoresearch/
+trial_log.md
+sesion.txt
+frame_*.png
+*.npz
+*.gif
+*.mp4
+
+# Git metadata is not needed inside the image
+.git/
+.gitignore

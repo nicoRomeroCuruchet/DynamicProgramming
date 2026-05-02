@@ -350,6 +350,9 @@ DynamicProgramming/
 ├── gifs/                          # Pre-recorded environment demos
 ├── results/                       # Saved policies (.npz) and plots
 ├── requirements.txt
+├── Dockerfile                     # CUDA 12.x runtime + all deps (see Docker section)
+├── docker-compose.yml             # Convenience wrapper for `docker compose run pi …`
+├── .dockerignore
 └── continuous_RL.pdf              # Theoretical foundation
 ```
 
@@ -365,6 +368,58 @@ The kernel is compiled at runtime via **NVRTC** — no pre-compilation step need
 ---
 
 ## Setup
+
+### Quick path: Docker
+
+If you want a one-shot deploy on a different machine — including older Ubuntu hosts where installing the right CUDA + Python combination by hand is painful — use the included Dockerfile.
+
+**Host prerequisites:**
+- NVIDIA GPU + recent driver (compatible with CUDA 12.x by default)
+- Docker 20.10+ and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+**Build and run with `docker compose`:**
+
+```bash
+# One-time build (~10-15 min)
+docker compose build
+
+# List available runners
+docker compose run --rm pi
+
+# Run a specific runner
+docker compose run --rm pi python3 runners/pendulum_cuda.py --random 5
+
+# Headless render (no X server needed) — record a GIF directly to your host
+docker compose run --rm pi xvfb-run -a \
+    python3 runners/double_pendulum_swingup_cuda.py \
+            --record gifs/pendulum_doble.gif --episodes 3 --no-plot --bins 50
+```
+
+The `docker-compose.yml` mounts `./results`, `./gifs`, and `./trials` from the host into the container, so policies and recordings persist between runs.
+
+**Build for older CUDA versions (e.g. CUDA 11.x):**
+
+Edit `docker-compose.yml`, set:
+```yaml
+args:
+  CUDA_VERSION: 11.8.0
+  CUPY_PACKAGE: cupy-cuda11x
+```
+…then `docker compose build`.
+
+**Without compose** (single `docker run`):
+
+```bash
+docker build -t cuda-pi .
+
+docker run --rm --gpus all \
+    -v "$PWD/results:/app/results" \
+    -v "$PWD/gifs:/app/gifs" \
+    cuda-pi \
+    python3 runners/cartpole_cuda.py --random 5
+```
+
+### Native install (alternative)
 
 ### 1. Prerequisites
 

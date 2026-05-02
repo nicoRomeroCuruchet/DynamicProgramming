@@ -1,0 +1,47 @@
+# docker compose v2 file. Usage:
+#
+#   # Build the image (one-time)
+#   docker compose build
+#
+#   # Run a runner (anything passes after `pi` becomes the command):
+#   docker compose run --rm pi python3 runners/pendulum_cuda.py --random 5
+#
+#   # Render headlessly (xvfb-run) and record a GIF:
+#   docker compose run --rm pi xvfb-run -a \
+#       python3 runners/double_pendulum_swingup_cuda.py \
+#               --record gifs/pendulum_doble.gif --episodes 3 --no-plot --bins 50
+#
+# Requires NVIDIA Container Toolkit on the host:
+#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/
+
+services:
+  pi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Override these for non-CUDA-12 stacks:
+        # CUDA_VERSION: 11.8.0
+        # CUPY_PACKAGE: cupy-cuda11x
+        CUDA_VERSION: 12.4.1
+        CUPY_PACKAGE: cupy-cuda12x
+    image: cuda-pi:latest
+
+    # GPU access via NVIDIA Container Toolkit (compose v2 syntax).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Mount runtime outputs from the host so you keep them between runs.
+    volumes:
+      - ./results:/app/results
+      - ./gifs:/app/gifs
+      - ./trials:/app/trials
+
+    # tty + stdin so log streams render correctly when you attach.
+    tty: true
+    stdin_open: true
