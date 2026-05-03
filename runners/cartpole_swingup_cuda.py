@@ -353,13 +353,13 @@ def evaluate(
         print(f"Video saved to {record_path.resolve()}")
 
 
-def evaluate_random(n_episodes: int = 3, seed: int = 42) -> None:
+def evaluate_random(n_episodes: int = 5, seed: int = 42, max_steps: int = 1000) -> None:
     """Random policy rollout — physics sanity check, no training needed."""
     rng = np.random.default_rng(seed=seed)
     for ep in range(n_episodes):
         state = np.array([0.0, 0.0, np.pi, 0.0], dtype=np.float32)
         total_reward = 0.0
-        for step in range(500):
+        for step in range(max_steps):
             force = float(rng.choice(ACTION_SPACE))
             state, reward, terminated = _step_python(state, force)
             total_reward += reward
@@ -479,12 +479,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--render",    action="store_true",
                         help="Render evaluation episodes with pygame")
-    parser.add_argument("--random",    type=int, nargs="?", const=3, default=None, metavar="N",
+    parser.add_argument("--random",    type=int, nargs="?", const=5, default=None, metavar="N",
                         help="Run N random-policy episodes (physics check, no training)")
     parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
                         help="Save evaluation video to PATH (.gif or .mp4)")
-    parser.add_argument("--episodes",  type=int, default=3,
-                        help="Number of evaluation episodes (default: 3)")
+    parser.add_argument("--episodes",  type=int, default=5,
+                        help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--steps",     type=int, default=1000,
                         help="Max steps per episode (default: 1000)")
     parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
@@ -501,7 +501,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.random is not None:
-        evaluate_random(n_episodes=args.random, seed=args.seed)
+        evaluate_random(n_episodes=args.random, seed=args.seed, max_steps=args.steps)
     else:
         if args.bins != BINS_PER_DIM:
             for key in BINS_SPACE:

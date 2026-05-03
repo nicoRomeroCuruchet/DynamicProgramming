@@ -3,4 +3,6 @@ cupy-cuda12x        # adjust to your CUDA version: cupy-cuda11x / cupy-cuda12x /
 numba
 matplotlib
 gymnasium[classic_control]
-imageio             # video recording; add imageio[ffmpeg] for MP4 support
+imageio[ffmpeg]     # video recording (.gif and .mp4)
+pygame              # rendering for cartpole / pendulum / crane environments
+loguru              # structured training logs (used by src/cuda_policy_iteration.py)

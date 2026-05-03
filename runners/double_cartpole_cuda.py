@@ -231,7 +231,7 @@ def _step_python(state, force):
         abs(nth1) > _TH_THRESH or
         abs(nth2) > _TH_THRESH
     )
-    reward = 1.0 - 0.5 * (nx / 2.4) ** 2   # matches CUDA DCP_X_PENALTY reward
+    reward = 1.0 - 0.5 * (nx / 2.4) ** 2
     return next_state, reward, terminated
 
 
@@ -347,6 +347,7 @@ def _render_frame_pygame(screen, clock, state):
 def evaluate(
     pi: DoubleCartPoleCuda,
     n_episodes: int = 5,
+    steps: int = 500,
     render: bool = False,
     record_path: Path = None,
     seed: int = 42,
@@ -371,7 +372,7 @@ def evaluate(
         state = rng.uniform(-0.05, 0.05, size=6).astype(np.float32)
         total_reward = 0.0
 
-        for step in range(500):
+        for step in range(steps):
             if do_render:
                 _render_frame_pygame(screen, clock, state)
                 if recording:
@@ -404,8 +405,14 @@ def evaluate(
         record_path.parent.mkdir(parents=True, exist_ok=True)
         if record_path.suffix.lower() == ".gif":
             imageio.mimsave(str(record_path), all_frames, fps=50, loop=0)
+        elif record_path.suffix.lower() == ".mp4":
+            writer = imageio.get_writer(str(record_path), fps=50, codec="libx264",
+                                        quality=8, pixelformat="yuv420p")
+            for frame in all_frames:
+                writer.append_data(frame)
+            writer.close()
         else:
-            imageio.mimsave(str(record_path), all_frames, fps=50, macro_block_size=1)
+            imageio.mimsave(str(record_path), all_frames, fps=50)
         print(f"Video saved to {record_path.resolve()}")
 
 
@@ -530,15 +537,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Double CartPole — CUDA Policy Iteration")
     parser.add_argument("--render",      action="store_true",
                         help="Render evaluation episodes with pygame")
-    parser.add_argument("--random",      type=int, nargs="?", const=500, default=None,
-                        metavar="STEPS",
-                        help="Run random actions to check physics (no training needed). "
-                             "Optionally specify max steps per episode (default: 500)")
+    parser.add_argument("--random",      type=int, nargs="?", const=5, default=None,
+                        metavar="N",
+                        help="Run N random-policy episodes as baseline (default N=5 if flag given)")
     parser.add_argument("--record",      type=Path, default=None, metavar="PATH",
                         help="Save evaluation video to PATH (.gif or .mp4). "
                              "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",    type=int,  default=5,
                         help="Number of evaluation episodes (default: 5)")
+    parser.add_argument("--steps",       type=int,  default=1000,
+                        help="Max steps per evaluation episode (default: 1000)")
     parser.add_argument("--bins",        type=int,  default=BINS_PER_DIM,
                         help=f"Bins per dimension (default: {BINS_PER_DIM}). "
                              "Memory: 12->~90MB, 15->~420MB, 20->~2.1GB")
@@ -554,7 +562,7 @@ if __name__ == "__main__":
 
     # --random bypasses training entirely
     if args.random is not None:
-        run_random(n_episodes=args.episodes, max_steps=args.random, render=args.render)
+        run_random(n_episodes=args.random, max_steps=args.steps, render=args.render)
     else:
         # Rebuild grid if --bins differs from default
         if args.bins != BINS_PER_DIM:
@@ -569,7 +577,7 @@ if __name__ == "__main__":
             print("[*] Training new policy...")
             pi = train(args.save_path)
 
-        evaluate(pi, n_episodes=args.episodes, render=args.render, record_path=args.record)
+        evaluate(pi, n_episodes=args.episodes, steps=args.steps, render=args.render, record_path=args.record)
         if not args.no_plot:
             plot_value_slice(pi)
             plot_policy_slice(pi)

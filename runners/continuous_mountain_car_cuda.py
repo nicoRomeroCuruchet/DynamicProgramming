@@ -112,6 +112,7 @@ def evaluate(
     render: bool = False,
     record_path: Path = None,
     seed: int = 42,
+    max_steps: int = 1000,
 ) -> None:
     import gymnasium as gym
     from utils.barycentric import get_optimal_action
@@ -125,7 +126,7 @@ def evaluate(
         obs, _ = env.reset(seed=seed + ep)
         total_reward = 0.0
 
-        for step in range(999):
+        for step in range(max_steps):
             action_val = float(get_optimal_action(
                 np.array(obs, dtype=np.float32),
                 pi.policy, pi.action_space,
@@ -160,14 +161,14 @@ def evaluate(
         print(f"Video saved to {record_path.resolve()}")
 
 
-def evaluate_random(n_episodes: int = 5, seed: int = 42) -> None:
+def evaluate_random(n_episodes: int = 5, seed: int = 42, max_steps: int = 1000) -> None:
     """Run episodes with a uniformly random policy — use as baseline comparison."""
     import gymnasium as gym
     env = gym.make("MountainCarContinuous-v0")
     for ep in range(n_episodes):
         obs, _ = env.reset(seed=seed + ep)
         total_reward = 0.0
-        for step in range(999):
+        for step in range(max_steps):
             obs, reward, terminated, truncated, _ = env.step(env.action_space.sample())
             total_reward += reward
             if terminated or truncated:
@@ -219,6 +220,8 @@ if __name__ == "__main__":
                              "MP4 requires: pip install imageio[ffmpeg]")
     parser.add_argument("--episodes",  type=int, default=5,
                         help="Number of evaluation episodes (default: 5)")
+    parser.add_argument("--steps",     type=int, default=1000,
+                        help="Max steps per episode (default: 1000)")
     parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
                         help=f"Bins per dimension (default: {BINS_PER_DIM})")
     parser.add_argument("--seed",      type=int, default=42,
@@ -232,7 +235,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.random is not None:
-        evaluate_random(n_episodes=args.random, seed=args.seed)
+        evaluate_random(n_episodes=args.random, seed=args.seed, max_steps=args.steps)
     else:
         if args.bins != BINS_PER_DIM:
             for key in BINS_SPACE:
@@ -247,6 +250,6 @@ if __name__ == "__main__":
             pi = train(args.save_path)
 
         evaluate(pi, n_episodes=args.episodes, render=args.render,
-                 record_path=args.record, seed=args.seed)
+                 record_path=args.record, seed=args.seed, max_steps=args.steps)
         if not args.no_plot:
             plot_value_function(pi)

@@ -118,3 +118,6 @@ venv.bak/
 # img
 img/
 
+autoresearch/
+sesion.txt
+frame_*.png

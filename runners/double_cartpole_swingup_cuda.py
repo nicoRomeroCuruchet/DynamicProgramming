@@ -197,8 +197,8 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             // making "any high E is OK" the dominant strategy.
             float E_diff = (KE + PE) - DCP_E_TARGET;
             float E_err  = (E_diff < 0.0f)
-                         ? 1.5f * (-E_diff) / (2.0f * DCP_E_TARGET)
-                         :         E_diff   / (2.0f * DCP_E_TARGET);
+                         ? 2.5f * (-E_diff) / (2.0f * DCP_E_TARGET)
+                         : 1.5f *   E_diff  / (2.0f * DCP_E_TARGET);
 
             // Per-link upright "softgates" -- partial credit per link.
             float g1 = fmaxf(0.0f, c1n);
@@ -208,6 +208,9 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
             // Velocity damping in the upright zone -- stronger now (0.1)
             // to force stabilization once both links cross above horizontal.
             float vel_pen = 0.1f * upright_gate * (w1 * w1 + w2 * w2);
+
+            // Deep upright cliff: extra bonus when BOTH poles deeply upright (cos > 0.7)
+            float deep_bonus = (c1n > 0.7f && c2n > 0.7f) ? 6.0f : 0.0f;
 
             // Cart velocity penalty -- discourages "fly to the wall".
             float xdn = *nxd / 8.0f;
@@ -219,7 +222,8 @@ class DoubleCartPoleSwingUpCuda(CudaPolicyIteration6D):
                     + 0.5f * (c1n + c2n)        // base cosine,  [-1, +1]
                     + 0.5f * g1                 // per-link credit (link 1)
                     + 1.0f * g2                 // per-link credit (link 2)
-                    + 2.0f * upright_gate       // BIG bonus when both up
+                    + 6.0f * upright_gate       // BIG bonus when both up
+                    + deep_bonus               // cliff bonus for frac_deep_upright
                     - 1.0f * E_err              // asymmetric energy penalty
                     - 0.5f * xn * xn
                     - 0.2f * xdn * xdn
@@ -293,14 +297,15 @@ def _step_python(state, force):
     E_target = m12 * 9.8 * l1 + m2 * 9.8 * l2
     E_diff = (KE + PE) - E_target
     if E_diff < 0.0:
-        E_err = 1.5 * (-E_diff) / (2.0 * E_target)   # under-energy: 1.5x
+        E_err = 2.5 * (-E_diff) / (2.0 * E_target)   # under-energy: 2.5x
     else:
-        E_err =        E_diff   / (2.0 * E_target)   # over-energy:  1x
+        E_err = 1.5 * E_diff   / (2.0 * E_target)     # over-energy:  1.5x
 
     g1 = max(0.0, c1n)
     g2 = max(0.0, c2n)
     upright_gate = g1 * g2
     vel_pen      = 0.1 * upright_gate * (nth1d**2 + nth2d**2)
+    deep_bonus   = 6.0 if (c1n > 0.7 and c2n > 0.7) else 0.0
 
     xn  = nx  / 2.4
     xdn = nxd / 8.0
@@ -308,7 +313,8 @@ def _step_python(state, force):
            + 0.5 * (c1n + c2n) \
            + 0.5 * g1 \
            + 1.0 * g2 \
-           + 2.0 * upright_gate \
+           + 6.0 * upright_gate \
+           + deep_bonus \
            - 1.0 * E_err \
            - 0.5 * xn**2 \
            - 0.2 * xdn**2 \
@@ -481,6 +487,9 @@ def evaluate(
 
     STATS_WINDOW = 100   # last-N steps used for steady-state diagnostics
 
+    # Aggregate steady-state windows across episodes for autoresearch scoring.
+    all_steady_windows = []
+
     for ep in range(n_episodes):
         # Start with both poles hanging down (theta = pi) + small perturbation
         state = np.array([
@@ -533,6 +542,7 @@ def evaluate(
 
         # Steady-state diagnostics over the last STATS_WINDOW steps.
         traj_arr = np.asarray(traj[-STATS_WINDOW:])
+        all_steady_windows.append(traj_arr)
         cos1   = np.cos(traj_arr[:, 2])
         cos2   = np.cos(traj_arr[:, 4])
         w1_abs = np.abs(traj_arr[:, 3])
@@ -568,6 +578,17 @@ def evaluate(
             f"  reward parts: base={base_part:+.2f}  cos={cos_part:+.3f}"
             f"  g1={g1_part:+.3f}  g2={g2_part:+.3f}  bonus={bonus_part:+.3f}"
             f"  E={e_part:+.3f}  x={x_part:+.3f}  xd={xd_part:+.3f}  vel={vel_part:+.3f}"
+        )
+
+    # Dump aggregate steady-state trajectories for autoresearch scoring.
+    if all_steady_windows:
+        traj_path = Path("results") / "last_trajectory.npz"
+        traj_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            traj_path,
+            traj=np.concatenate(all_steady_windows, axis=0),
+            n_episodes=n_episodes,
+            steps_per_episode=STATS_WINDOW,
         )
 
     if do_render:
@@ -785,12 +806,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--render",    action="store_true",
                         help="Render evaluation episodes with pygame")
-    parser.add_argument("--random",    type=int, nargs="?", const=3, default=None, metavar="N",
+    parser.add_argument("--random",    type=int, nargs="?", const=5, default=None, metavar="N",
                         help="Run N random-policy episodes (physics check, no training)")
     parser.add_argument("--record",    type=Path, default=None, metavar="PATH",
                         help="Save evaluation video to PATH (.gif or .mp4)")
-    parser.add_argument("--episodes",  type=int, default=3,
-                        help="Number of evaluation episodes (default: 3)")
+    parser.add_argument("--episodes",  type=int, default=5,
+                        help="Number of evaluation episodes (default: 5)")
     parser.add_argument("--steps",     type=int, default=1000,
                         help="Max steps per episode (default: 1000)")
     parser.add_argument("--bins",      type=int, default=BINS_PER_DIM,
